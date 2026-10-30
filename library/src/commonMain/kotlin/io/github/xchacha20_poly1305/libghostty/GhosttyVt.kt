@@ -82,7 +82,7 @@ internal object GhosttyVt {
     /** With [full], every row is written, not only those changed since the last snapshot. */
     external fun nativeSnapshot(handle: Long, buffer: ByteBuffer, full: Boolean): Int
 
-    const val KITTY_PLACEMENT_LONGS = 13
+    const val KITTY_PLACEMENT_LONGS = 14
 
     external fun nativeKittyPlacements(handle: Long): LongArray?
 

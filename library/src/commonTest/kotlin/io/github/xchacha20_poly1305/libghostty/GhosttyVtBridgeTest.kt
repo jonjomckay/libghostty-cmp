@@ -237,7 +237,7 @@ class GhosttyVtBridgeTest {
 
     /** Byte offset of the [row]th row record, skipping the header and earlier rows with their text. */
     private fun rowOffset(buffer: ByteBuffer, cols: Int, row: Int): Int {
-        var offset = 15 * 4
+        var offset = 17 * 4
         repeat(row) {
             val textBytes = buffer.getInt(offset + 12) * 2
             offset += (16 + cols * 16 + textBytes + 3) / 4 * 4
@@ -328,9 +328,9 @@ class GhosttyVtBridgeTest {
 
         val snapshot = ByteBuffer.allocateDirect(512 * 1024).order(ByteOrder.LITTLE_ENDIAN)
         GhosttyVt.nativeSnapshot(handle, snapshot, false)
-        assertTrue(snapshot.getInt(4) and (1 shl 8) != 0, "kitty placements dirty")
+        val generation = snapshot.getLong(60)
         GhosttyVt.nativeSnapshot(handle, snapshot, false)
-        assertEquals(0, snapshot.getInt(4) and (1 shl 8), "kitty placements clean")
+        assertEquals(generation, snapshot.getLong(60), "unchanged image list generation")
         val placements = assertNotNull(GhosttyVt.nativeKittyPlacements(handle))
         assertEquals(GhosttyVt.KITTY_PLACEMENT_LONGS, placements.size)
         assertEquals(7L, placements[0], "image id")

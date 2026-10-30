@@ -51,14 +51,14 @@ class GhosttyVtSmokeTest {
             assertTrue(rowCount > 0, "snapshot returned $rowCount")
 
             buffer.position(0)
-            assertEquals(2, buffer.int, "snapshot version")
+            assertEquals(3, buffer.int, "snapshot version")
             buffer.int
             val cols = buffer.int
             assertEquals(80, cols)
             buffer.int
             buffer.int
             val defaultForeground = buffer.int
-            buffer.position(15 * 4)
+            buffer.position(17 * 4)
 
             val rows = HashMap<Int, Row>()
             repeat(rowCount) {

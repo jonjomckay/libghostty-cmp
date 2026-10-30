@@ -16,6 +16,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import io.github.xchacha20_poly1305.libghostty.GhosttyCellFlags
 import io.github.xchacha20_poly1305.libghostty.GhosttyCursorStyle
+import io.github.xchacha20_poly1305.libghostty.GhosttyImageLayer
 import io.github.xchacha20_poly1305.libghostty.GhosttyRenderState
 import kotlin.math.max
 import kotlin.math.min
@@ -47,10 +48,11 @@ internal fun DrawScope.drawTerminal(controller: TerminalController, handleColor:
     val origin = controller.gridOrigin
     translate(origin.x, origin.y) {
         clipRect(right = render.columns * cellWidth, bottom = render.rows * cellHeight) {
+            drawKittyImages(controller, cellWidth, cellHeight, GhosttyImageLayer.BELOW_BACKGROUND)
             drawBackgrounds(render, cellWidth, cellHeight)
-            drawKittyImages(controller, cellWidth, cellHeight, belowText = true)
+            drawKittyImages(controller, cellWidth, cellHeight, GhosttyImageLayer.BELOW_TEXT)
             drawText(render, glyphs, cellWidth, cellHeight)
-            drawKittyImages(controller, cellWidth, cellHeight, belowText = false)
+            drawKittyImages(controller, cellWidth, cellHeight, GhosttyImageLayer.ABOVE_TEXT)
             if (controller.cursorBlinkOn || !render.cursorBlinking) drawCursor(render, glyphs, cellWidth, cellHeight)
             drawComposingText(controller, glyphs, cellWidth, cellHeight)
             drawPasswordIndicator(render, cellWidth, cellHeight)
@@ -65,9 +67,12 @@ private fun DrawScope.drawBackgrounds(render: GhosttyRenderState, cellWidth: Flo
         var col = 0
         while (col < render.columns) {
             val color = render.background(col, row)
+            val hasBackground = render.hasBackground(col, row)
             var end = col + 1
-            while (end < render.columns && render.background(end, row) == color) end++
-            if (color != render.defaultBackground) {
+            while (end < render.columns && render.background(end, row) == color &&
+                render.hasBackground(end, row) == hasBackground
+            ) end++
+            if (hasBackground) {
                 drawRect(Color(color), Offset(col * cellWidth, top), Size((end - col) * cellWidth, cellHeight))
             }
             col = end
@@ -163,10 +168,10 @@ private fun DrawScope.drawKittyImages(
     controller: TerminalController,
     cellWidth: Float,
     cellHeight: Float,
-    belowText: Boolean,
+    layer: GhosttyImageLayer,
 ) {
     for (placement in controller.render.kittyPlacements) {
-        if ((placement.z < 0) != belowText) continue
+        if (placement.layer != layer) continue
         val image = controller.kittyImage(placement.imageGeneration) ?: continue
         drawImage(
             image,

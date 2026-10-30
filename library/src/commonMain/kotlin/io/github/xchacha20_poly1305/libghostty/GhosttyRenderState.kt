@@ -50,7 +50,7 @@ public class GhosttyRenderState {
     public var scrollbar: GhosttyScrollbar = GhosttyScrollbar(0, 0, 0)
         private set
 
-    /** Visible Kitty graphics placements, ordered by z. */
+    /** Visible Kitty graphics placements, ordered by layer, z-index, and image ID. */
     public var kittyPlacements: List<GhosttyKittyPlacement> = emptyList()
         private set
 
@@ -58,7 +58,7 @@ public class GhosttyRenderState {
 
     /** A new state has seen no rows yet, whatever the terminal already reported to an earlier renderer. */
     private var needsFullSnapshot = true
-    private var kittyPlacementsDirty = false
+    private var kittyPlacementsGeneration: Long? = null
     private var foreground = IntArray(0)
     private var background = IntArray(0)
     private var textOffset = IntArray(0)
@@ -71,6 +71,12 @@ public class GhosttyRenderState {
     public fun foreground(column: Int, row: Int): Int = foreground[row * columns + column]
 
     public fun background(column: Int, row: Int): Int = background[row * columns + column]
+
+    /** Whether the cell paints a background over images in [GhosttyImageLayer.BELOW_BACKGROUND]. */
+    public fun hasBackground(column: Int, row: Int): Boolean =
+        flags(column, row) and GhosttyCellFlags.BG_NONE == 0 ||
+                flags(column, row) and GhosttyCellFlags.INVERSE != 0 ||
+                (rowSelectionStart[row] >= 0 && column in rowSelectionStart[row]..rowSelectionEnd[row])
 
     /** [GhosttyCellFlags] bits of a cell. */
     public fun flags(column: Int, row: Int): Int = flags[row * columns + column] and FLAGS_MASK
@@ -116,12 +122,12 @@ public class GhosttyRenderState {
         val newScrollbar = terminal.scrollbar
         val scrolled = newScrollbar != scrollbar
         scrollbar = newScrollbar
-        val placementsDirty = kittyPlacementsDirty
-        kittyPlacementsDirty = false
-        val imagesChanged = if (changed || scrolled || placementsDirty) {
+        val generation = buffer.getLong(IMAGES_GENERATION_OFFSET)
+        val imagesChanged = if (generation != kittyPlacementsGeneration) {
             val placements = readKittyPlacements(terminal)
             val placementsChanged = placements != kittyPlacements
             kittyPlacements = placements
+            kittyPlacementsGeneration = generation
             placementsChanged
         } else {
             false
@@ -143,7 +149,6 @@ public class GhosttyRenderState {
         buffer.position(0)
         check(buffer.int == SNAPSHOT_VERSION) { "snapshot version mismatch" }
         val dirty = buffer.int
-        if (dirty and KITTY_PLACEMENTS_DIRTY_BIT != 0) kittyPlacementsDirty = true
         val snapshotColumns = buffer.int
         val snapshotRows = buffer.int
         val newBackground = buffer.int
@@ -161,7 +166,9 @@ public class GhosttyRenderState {
         buffer.int
         val newPasswordInput = buffer.int != 0
 
-        val changed = dirty and RENDER_DIRTY_MASK != DIRTY_FALSE
+        buffer.long // Image list generation is read after all rows have been applied.
+
+        val changed = dirty != DIRTY_FALSE
                 || newCursorColumn != cursorColumn
                 || newCursorRow != cursorRow
                 || newCursorStyle != cursorStyle
@@ -269,13 +276,14 @@ public class GhosttyRenderState {
                 sourceWidth = data[i + 10].toInt(),
                 sourceHeight = data[i + 11].toInt(),
                 z = data[i + 12].toInt(),
+                layer = GhosttyImageLayer.entries[data[i + 13].toInt()],
             )
         }
     }
 
     private companion object {
-        const val SNAPSHOT_VERSION = 2
-        const val HEADER_BYTES = 60
+        const val SNAPSHOT_VERSION = 3
+        const val HEADER_BYTES = 68
         const val ROW_HEADER_BYTES = 16
         const val CELL_RECORD_BYTES = 16
         const val TEXT_UNITS_PER_CELL = 4
@@ -283,8 +291,7 @@ public class GhosttyRenderState {
         const val ROWS_OFFSET = 12
         const val TRUNCATED_OFFSET = 52
         const val DIRTY_FALSE = 0
-        const val RENDER_DIRTY_MASK = 0xFF
-        const val KITTY_PLACEMENTS_DIRTY_BIT = 1 shl 8
+        const val IMAGES_GENERATION_OFFSET = 60
         const val UNDERLINE_MASK = 0x7
         const val UNDERLINE_SHIFT = 16
         const val FLAGS_MASK = (1 shl UNDERLINE_SHIFT) - 1
@@ -319,8 +326,7 @@ public object GhosttyCellFlags {
 /**
  * Where to draw part of a Kitty graphics image: the source rectangle of the image, in pixels, onto a
  * [width] x [height] pixel rectangle that starts [offsetX], [offsetY] pixels into the viewport cell at [column],
- * [row]. The row is negative when the image starts above the viewport. Placements with a negative [z] are drawn
- * below the text.
+ * [row]. The row is negative when the image starts above the viewport. Draw in [layer] order, then by [z].
  */
 public data class GhosttyKittyPlacement(
     val imageId: Int,
@@ -337,4 +343,16 @@ public data class GhosttyKittyPlacement(
     val sourceWidth: Int,
     val sourceHeight: Int,
     val z: Int,
+    val layer: GhosttyImageLayer = when {
+        z < Int.MIN_VALUE / 2 -> GhosttyImageLayer.BELOW_BACKGROUND
+        z < 0 -> GhosttyImageLayer.BELOW_TEXT
+        else -> GhosttyImageLayer.ABOVE_TEXT
+    },
 )
+
+/** Image drawing order relative to cell backgrounds and text. */
+public enum class GhosttyImageLayer {
+    BELOW_BACKGROUND,
+    BELOW_TEXT,
+    ABOVE_TEXT,
+}

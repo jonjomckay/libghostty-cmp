@@ -1,0 +1,12 @@
+diff --git a/src/terminal/page.zig b/src/terminal/page.zig
+--- a/src/terminal/page.zig
++++ b/src/terminal/page.zig
+@@ -1812,7 +1812,7 @@
+         /// The alignment of the block's start: the largest alignment any
+         /// member requires, so that the member offsets above don't depend
+         /// on where the block is placed.
+-        pub const alignment = @max(
++        pub const alignment: usize = @max(
+             StyleSet.base_align.toByteUnits(),
+             GraphemeAlloc.base_align.toByteUnits(),
+             GraphemeMap.base_align.toByteUnits(),

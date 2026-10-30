@@ -5,6 +5,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertNotEquals
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class GhosttyRenderStateTest {
@@ -119,6 +121,126 @@ class GhosttyRenderStateTest {
         } finally {
             big.close()
         }
+    }
+
+    @Test
+    fun backgroundsCoverImagesEvenWhenTheyMatchTheDefaultColor() {
+        write("a\u001b[48;2;0;0;0mb\u001b[0m\u001b[7mc\u001b[0md")
+        val state = GhosttyRenderState()
+        update(state)
+        assertEquals(state.defaultBackground, state.background(1, 0))
+        assertFalse(state.hasBackground(0, 0))
+        assertTrue(state.hasBackground(1, 0), "explicit default-colored background")
+        assertTrue(state.hasBackground(2, 0), "inverse text")
+        assertFalse(state.hasBackground(3, 0))
+        session.withTerminal { assertTrue(it.select(0, 0, 0, 0)) }
+        update(state)
+        assertTrue(state.hasBackground(0, 0), "selected cell")
+    }
+
+    private fun kitty(command: String, data: String = "") = write("\u001b_G$command;$data\u001b\\")
+
+    private fun prepareImages() {
+        session.resize(20, 5, 10, 20)
+    }
+
+    private fun image(id: Int, z: Int = 0) =
+        kitty("a=T,f=24,s=1,v=1,i=$id,p=1,c=1,r=1,C=1,z=$z,q=2", "////")
+
+    @Test
+    fun kittyPlacementsHaveAllThreeLayersWithoutDuplicates() {
+        prepareImages()
+        image(3)
+        image(1, Int.MIN_VALUE)
+        image(2, -1)
+        val state = GhosttyRenderState()
+        assertTrue(update(state))
+        assertEquals(listOf(1, 2, 3), state.kittyPlacements.map { it.imageId })
+        assertEquals(GhosttyImageLayer.entries, state.kittyPlacements.map { it.layer })
+        assertFalse(update(state), "unchanged image list")
+
+        // A new renderer must receive the list even after an earlier one consumed the generation change.
+        val next = GhosttyRenderState()
+        assertTrue(update(next))
+        assertEquals(state.kittyPlacements, next.kittyPlacements)
+        val placements = state.kittyPlacements
+        write("text")
+        assertTrue(update(state))
+        assertSame(placements, state.kittyPlacements, "text changes reuse the unchanged image list")
+
+        kitty("a=d,d=I,i=2,q=2")
+        assertTrue(update(next), "another renderer can observe the same change first")
+        assertTrue(update(state), "deleting an image updates the list without changing text")
+        assertEquals(listOf(1, 3), state.kittyPlacements.map { it.imageId })
+        assertFalse(update(state))
+    }
+
+    @Test
+    fun kittyPixelsAndScreenSwitchesInvalidateTheImageList() {
+        prepareImages()
+        image(1)
+        val state = GhosttyRenderState()
+        update(state)
+        val original = state.kittyPlacements.single()
+        kitty("a=T,f=24,s=1,v=1,i=1,p=1,c=1,r=1,C=1,q=2", "AAAA")
+        assertTrue(update(state))
+        val replacement = state.kittyPlacements.single()
+        assertNotEquals(original.imageGeneration, replacement.imageGeneration)
+        session.withTerminal {
+            assertEquals(0xFF000000.toInt(), it.kittyImage(1)!!.pixels.single())
+        }
+        write("\u001b[?1049h")
+        assertTrue(update(state))
+        assertTrue(state.kittyPlacements.isEmpty())
+        write("\u001b[?1049l")
+        assertTrue(update(state))
+        assertEquals(listOf(replacement), state.kittyPlacements)
+        kitty("a=d,d=I,i=1,q=2")
+        assertTrue(update(state))
+        assertTrue(state.kittyPlacements.isEmpty(), "deleting the last image clears the cached list")
+    }
+
+    @Test
+    fun kittyPlacementsFollowScrollAndResize() {
+        prepareImages()
+        write("\u001b[3;4H")
+        image(1)
+        val state = GhosttyRenderState()
+        update(state)
+        assertEquals(3, state.kittyPlacements.single().column)
+        assertEquals(2, state.kittyPlacements.single().row)
+        write("\u001b[5;1H\r\n")
+        assertTrue(update(state))
+        assertEquals(1, state.kittyPlacements.single().row)
+        session.withTerminal { it.scroll(-1) }
+        assertTrue(update(state))
+        assertEquals(2, state.kittyPlacements.single().row)
+        session.resize(20, 5, 15, 25)
+        assertTrue(update(state))
+        assertEquals(15, state.kittyPlacements.single().width)
+        assertEquals(25, state.kittyPlacements.single().height)
+    }
+
+    @Test
+    fun kittyVirtualAndRelativePlacementsShareTheRenderList() {
+        prepareImages()
+        kitty("a=T,f=24,s=1,v=1,i=1,p=1,U=1,c=1,r=1,q=2", "////")
+        // The placeholder's foreground and underline colors encode image and placement IDs.
+        write("\u001b[2;3H\u001b[38;5;1;58;5;1m\uDBFB\uDEEE\u0305\u0305\u001b[0m")
+        kitty("a=p,i=1,p=2,P=1,Q=1,H=1,V=1,c=1,r=1,z=5,q=2")
+        val state = GhosttyRenderState()
+        assertTrue(update(state))
+        assertEquals(2, state.kittyPlacements.size)
+        val (virtual, relative) = state.kittyPlacements
+        assertEquals(GhosttyImageLayer.BELOW_TEXT, virtual.layer)
+        assertEquals(2, virtual.column)
+        assertEquals(1, virtual.row)
+        assertEquals(GhosttyImageLayer.ABOVE_TEXT, relative.layer)
+        assertEquals(3, relative.column)
+        assertEquals(2, relative.row)
+        write("\u001b[2;3Hx")
+        assertTrue(update(state))
+        assertTrue(state.kittyPlacements.isEmpty(), "overwriting the virtual anchor removes both placements")
     }
 
     @Test

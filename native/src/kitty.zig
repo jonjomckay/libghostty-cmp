@@ -1,9 +1,6 @@
 //! Kitty graphics placements and image pixels for the renderer.
 const std = @import("std");
-const vt = @import("ghostty-vt");
 const Session = @import("Session.zig");
-
-const graphics = vt.kitty.graphics;
 
 /// One visible placement, flattened into `GhosttyVt.KITTY_PLACEMENT_LONGS`
 /// longs in field order.
@@ -21,6 +18,7 @@ pub const Placement = extern struct {
     source_width: i64,
     source_height: i64,
     z: i64,
+    layer: i64,
 
     pub const longs = @sizeOf(Placement) / @sizeOf(i64);
 };
@@ -28,65 +26,13 @@ pub const Placement = extern struct {
 /// Images larger than this are not handed to the renderer.
 const max_image_pixels = 100 * 1000 * 1000;
 
-/// Collects the placements visible in the viewport, ordered by z. Virtual
-/// (unicode placeholder) placements and those relative to them come from
-/// the render state, so call this after a snapshot.
+/// Collects all placements from the last render state update, ordered by
+/// layer, z-index, and image ID. Call this after a snapshot.
 pub fn placements(session: *Session, alloc: std.mem.Allocator) ![]Placement {
-    const t = &session.terminal;
-    const screen = t.screens.active;
-    const storage = &screen.kitty_images;
-    if (storage.generation == 0) return &.{};
-
     var list: std.ArrayList(Placement) = .empty;
     errdefer list.deinit(alloc);
 
-    var it = storage.placements.iterator();
-    while (it.next()) |entry| {
-        const p = entry.value_ptr;
-        if (p.location == .virtual) continue;
-        const image = storage.images.getPtr(entry.key_ptr.image_id) orelse continue;
-        const pos = viewportPos(p, image, t) orelse continue;
-        const pixels = p.pixelSize(image.*, t);
-        const source = p.sourceRect(image.*);
-        if (pixels.width == 0 or pixels.height == 0 or
-            source.width == 0 or source.height == 0) continue;
-        try list.append(alloc, .{
-            .image_id = image.id,
-            .image_generation = @intCast(image.generation),
-            .viewport_col = pos.col,
-            .viewport_row = pos.row,
-            .offset_x = p.x_offset,
-            .offset_y = p.y_offset,
-            .dest_width = pixels.width,
-            .dest_height = pixels.height,
-            .source_x = source.x,
-            .source_y = source.y,
-            .source_width = source.width,
-            .source_height = source.height,
-            .z = p.z,
-        });
-    }
-
-    try appendVirtual(&list, alloc, &session.render);
-
-    std.mem.sortUnstable(Placement, list.items, {}, struct {
-        fn lessThan(_: void, a: Placement, b: Placement) bool {
-            if (a.z != b.z) return a.z < b.z;
-            return a.image_id < b.image_id;
-        }
-    }.lessThan);
-    return list.toOwnedSlice(alloc);
-}
-
-/// Appends the placements the last render state update resolved from
-/// placeholder cells: virtual placements and the relative placements
-/// attached to them.
-fn appendVirtual(
-    list: *std.ArrayList(Placement),
-    alloc: std.mem.Allocator,
-    render: *const vt.RenderState,
-) !void {
-    var it = render.imagePlacementIterator();
+    var it = session.render.imagePlacementIterator();
     while (it.next()) |p| {
         try list.append(alloc, .{
             .image_id = p.image_id,
@@ -102,47 +48,18 @@ fn appendVirtual(
             .source_width = p.source_width,
             .source_height = p.source_height,
             .z = p.z,
+            .layer = @backingInt(p.layer),
         });
     }
-}
 
-/// The viewport cell a placement starts at, or null when no part of it is
-/// in the viewport. Relative placements resolve through their parent
-/// chain; chains rooted at a virtual placement come from the render state.
-fn viewportPos(
-    p: *const graphics.ImageStorage.Placement,
-    image: *const graphics.Image,
-    t: *vt.Terminal,
-) ?struct { col: i32, row: i32 } {
-    const Origin = struct { pin: *const vt.Pin, col_offset: i32 = 0, row_offset: i32 = 0 };
-    const origin: Origin = switch (p.location) {
-        .pin => |pin| .{ .pin = pin },
-        .virtual => return null,
-        .relative => |rel| origin: {
-            const chain = t.screens.active.kitty_images.resolveChain(rel) orelse return null;
-            switch (chain.root.location) {
-                .pin => |root| break :origin .{
-                    .pin = root,
-                    .col_offset = chain.horizontal_offset,
-                    .row_offset = chain.vertical_offset,
-                },
-                .virtual => return null,
-                .relative => unreachable, // chain roots are never relative
-            }
-        },
-    };
-    if (origin.pin.garbage) return null;
-
-    const pages = &t.screens.active.pages;
-    const pin = (pages.pointFromPin(.screen, origin.pin.*) orelse return null).screen;
-    const top = (pages.pointFromPin(.screen, pages.getTopLeft(.viewport)) orelse return null).screen;
-    const row = (@as(i32, @intCast(pin.y)) - @as(i32, @intCast(top.y))) +| origin.row_offset;
-    const col = @as(i32, @intCast(pin.x)) +| origin.col_offset;
-
-    const grid = p.gridSize(image.*, t);
-    const visible = @as(i64, row) + grid.rows > 0 and row < t.rows and
-        @as(i64, col) + grid.cols > 0 and col < t.cols;
-    return if (visible) .{ .col = col, .row = row } else null;
+    std.mem.sortUnstable(Placement, list.items, {}, struct {
+        fn lessThan(_: void, a: Placement, b: Placement) bool {
+            if (a.layer != b.layer) return a.layer < b.layer;
+            if (a.z != b.z) return a.z < b.z;
+            return a.image_id < b.image_id;
+        }
+    }.lessThan);
+    return list.toOwnedSlice(alloc);
 }
 
 /// The current frame of an image as `[width, height, argb...]`.

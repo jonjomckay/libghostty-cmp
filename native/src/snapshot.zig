@@ -16,11 +16,10 @@ comptime {
     std.debug.assert(builtin.cpu.arch.endian() == .little);
 }
 
-pub const version: i32 = 2;
+pub const version: i32 = 3;
 
 /// Returned instead of a row count when the snapshot could not be taken.
 pub const failed: i32 = -1;
-pub const kitty_placements_dirty_bit: i32 = 1 << 8;
 
 pub const Header = extern struct {
     version: i32 = version,
@@ -38,6 +37,9 @@ pub const Header = extern struct {
     cursor_color: i32,
     truncated: i32 = 0,
     password_input: i32,
+    // Two u32 fields keep the layout identical on 32-bit and 64-bit targets.
+    images_generation_low: u32,
+    images_generation_high: u32,
 };
 
 pub const RowHeader = extern struct {
@@ -57,7 +59,7 @@ pub const Cell = extern struct {
 };
 
 comptime {
-    std.debug.assert(@sizeOf(Header) == 60);
+    std.debug.assert(@sizeOf(Header) == 68);
     std.debug.assert(@sizeOf(RowHeader) == 16);
     std.debug.assert(@sizeOf(Cell) == 16);
 }
@@ -92,24 +94,22 @@ pub fn write(session: *Session, buf: []u8) i32 {
     state.update(session.alloc, &session.terminal) catch return failed;
 
     var header: Header = .{
-        .dirty = @intFromEnum(state.dirty) | if (session.terminal.screens.active.kitty_images.dirty)
-            kitty_placements_dirty_bit
-        else
-            0,
+        .dirty = @backingInt(state.dirty),
         .cols = state.cols,
         .rows = state.rows,
         .background = Session.argb(state.colors.background),
         .foreground = Session.argb(state.colors.foreground),
         .cursor_x = if (state.cursor.viewport) |vp| vp.x else -1,
         .cursor_y = if (state.cursor.viewport) |vp| vp.y else -1,
-        .cursor_style = @intFromEnum(state.cursor.visual_style),
+        .cursor_style = @backingInt(state.cursor.visual_style),
         .cursor_visible = @intFromBool(state.cursor.visible),
         .cursor_blinking = @intFromBool(state.cursor.blinking),
         .cursor_color = if (state.colors.cursor) |c| Session.argb(c) else 0,
         .password_input = @intFromBool(state.cursor.password_input),
+        .images_generation_low = @truncate(state.imagePlacementsGeneration()),
+        .images_generation_high = @truncate(state.imagePlacementsGeneration() >> 32),
     };
     defer @memcpy(buf[0..@sizeOf(Header)], std.mem.asBytes(&header));
-    session.terminal.screens.active.kitty_images.dirty = false;
     if (state.dirty == .false) return 0;
 
     var writer: RowWriter = .{ .buf = buf, .offset = @sizeOf(Header), .cols = state.cols };
@@ -232,7 +232,7 @@ fn cell(
         if (f.faint) record.flags |= Flags.faint;
         if (f.underline != .none) {
             record.flags |= Flags.underline;
-            record.underline = @intFromEnum(f.underline);
+            record.underline = @backingInt(f.underline);
         }
         if (f.strikethrough) record.flags |= Flags.strikethrough;
         if (f.inverse) record.flags |= Flags.inverse;
