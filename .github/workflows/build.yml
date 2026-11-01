@@ -119,7 +119,7 @@ jobs:
           ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
           ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_KEY }}
           ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_KEY_PASSWORD }}
-          ORG_GRADLE_PROJECT_signingInMemoryKeyId: 0CDBE971
+          ORG_GRADLE_PROJECT_signingInMemoryKeyId: F22FA56A
 
   desktop-test:
     needs: native
@@ -234,7 +234,7 @@ jobs:
           ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
           ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_KEY }}
           ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_KEY_PASSWORD }}
-          ORG_GRADLE_PROJECT_signingInMemoryKeyId: 0CDBE971
+          ORG_GRADLE_PROJECT_signingInMemoryKeyId: F22FA56A
       - name: Create GitHub release
         run: |
           prerelease=()
