@@ -133,7 +133,7 @@ jobs:
       - uses: ./.github/actions/setup
       - name: Run the desktop tests
         shell: bash
-        run: ./gradlew :library:desktopTest :library-extras:desktopTest
+        run: ./gradlew :library:desktopTest :library-extras:desktopTest :demo-desktop:test
       - name: Load the library after R8
         shell: bash
         run: ./gradlew :shrink-check:shrinkCheck

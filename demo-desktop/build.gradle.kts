@@ -14,6 +14,7 @@ dependencies {
     implementation(libs.compose.material3)
     implementation(libs.kotlinx.coroutines.swing)
     implementation(libs.pty4j)
+    testImplementation(kotlin("test"))
 }
 
 compose.desktop {

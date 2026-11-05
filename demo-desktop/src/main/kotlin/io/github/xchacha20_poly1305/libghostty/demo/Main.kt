@@ -38,9 +38,16 @@ import io.github.xchacha20_poly1305.libghostty.compose.GhosttyTerminal
 import io.github.xchacha20_poly1305.libghostty.compose.rememberGhosttyTerminalState
 import kotlin.concurrent.thread
 
-fun main() = application {
+fun main() {
+    val terminalType = TerminalType.detect()
+    print("Detected terminal: $terminalType")
+
+    runDemo(terminalType)
+}
+
+private fun runDemo(terminalType: String) = application {
     var generation by remember { mutableIntStateOf(0) }
-    val session = remember(generation) { ShellSession.start() }
+    val session = remember(generation) { ShellSession.start(terminalType) }
     DisposableEffect(session) { onDispose { session.close() } }
     val title by session.title.collectAsState()
     Window(onCloseRequest = ::exitApplication, title = title ?: "libghostty demo") {
@@ -89,8 +96,8 @@ private fun ExitNotification(
 }
 
 private object ShellSession {
-    fun start(): GhosttyTerminalSession {
-        val session = GhosttyTerminalSession()
+    fun start(terminalType: String): GhosttyTerminalSession {
+        val session = GhosttyTerminalSession(GhosttyTerminalSession.Options(terminfoName = terminalType))
         val shell = System.getenv("SHELL")
             ?: if (System.getProperty("os.name").startsWith("Windows")) {
                 "cmd.exe"
@@ -98,7 +105,7 @@ private object ShellSession {
                 "/bin/sh"
             }
         val process: PtyProcess = PtyProcessBuilder(arrayOf(shell))
-            .setEnvironment(System.getenv() + mapOf("TERM" to "xterm-256color", "COLORTERM" to "truecolor"))
+            .setEnvironment(System.getenv() + mapOf("TERM" to terminalType, "COLORTERM" to "truecolor"))
             .setInitialColumns(session.columns.fastCoerceAtLeast(80))
             .setInitialRows(session.rows.fastCoerceAtLeast(24))
             .start()
