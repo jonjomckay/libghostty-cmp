@@ -1,7 +1,7 @@
 # Overview
 
-Kotlin Multiplatform bindings for libghostty-vt (the terminal emulation core of Ghostty) for Android and the desktop
-JVM (Linux, macOS, Windows), published to Maven Central as
+Kotlin Multiplatform bindings for libghostty-vt (the terminal emulation core of Ghostty) for Android, the desktop
+JVM (Linux, macOS, Windows), and browser WebAssembly, published to Maven Central as
 `io.github.xchacha20-poly1305:libghostty[-extras|-compose]`. Kotlin package: `io.github.xchacha20_poly1305.libghostty`.
 All library modules use `explicitApi()`.
 
@@ -23,15 +23,16 @@ copies the native outputs from there and needs none of zig, tic, the NDK or the 
 - Try it by hand: `./gradlew :demo-desktop:run` (shell through pty4j), `:demo-android:installDebug` (echo session)
 - Publish snapshot: `./gradlew publishToMavenCentral` (release: `publishAndReleaseToMavenCentral -PVERSION_NAME=x.y.z`)
 
-The tests in `commonTest` run both on the desktop JVM and, through `androidDeviceTest`, on Android.
+The core bridge tests in `jvmSharedTest` run on both the desktop JVM and Android (`androidDeviceTest`).
+Browser integration tests run the real Wasm backend through the web demo; keep JVM-only test APIs out of commonTest.
 
 # Architecture
 
 Modules (`settings.gradle.kts`): `:library` (core), `:library-extras` (themes, terminfo, fonts), `:library-compose`
 (Compose Multiplatform terminal, minSdk 23; others minSdk 21), plus the unpublished `:demo-desktop`, `:demo-android`
 and `:shrink-check`.
-Each library module has the targets `android` (AGP's KMP plugin) and `jvm("desktop")`. With only JVM targets,
-`commonMain` uses JDK APIs directly.
+Each library module has `android` (AGP's KMP plugin) and `jvm("desktop")`; core and Compose also have
+`wasmJs`. JVM utilities belong in jvmSharedMain or platform source sets, never commonMain.
 
 **Native pipeline (the non-obvious part).** The JNI library is written in Zig (`native/`) and built by `buildSrc`
 plugins before the Kotlin compile:
@@ -54,7 +55,7 @@ plugins before the Kotlin compile:
   `source.properties`). `:library` reaches them through the `ghosttyNative` extension (`GhosttyNative`).
 
 **JNI registration.** `JNI_OnLoad` (`native/src/main.zig`) registers every public function of the `natives` struct as
-the `GhosttyVt` native method of the same name; `jni.zig` derives the JNI signature from the Zig parameter types
+the `GhosttyJni` native method of the same name; `jni.zig` derives the JNI signature from the Zig parameter types
 (`jni.Ref("L...;")` for objects). Calls from native into Kotlin go through `GhosttyVtCallbacks`, whose methods
 `JNI_OnLoad` also resolves by name. The native side must reach no other Kotlin class: `library/consumer-rules.pro`
 (shipped in the AAR and, under `META-INF/proguard/`, in the desktop jar) keeps exactly these two classes whole, and
@@ -62,7 +63,7 @@ the `GhosttyVt` native method of the same name; `jni.zig` derives the JNI signat
 the Zig function; renaming the package means updating `package` in `main.zig` and `library/consumer-rules.pro`. ELF
 builds export only `JNI_OnLoad` (`native/jni.map`).
 
-**Kotlin layer.** In `:library`, `GhosttyVt` is the internal JNI surface; `GhosttyTerminalSession` owns a terminal,
+**Kotlin layer.** In `:library`, `GhosttyBackend` is the shared backend contract; `GhosttyJni` is the internal JNI surface; `GhosttyTerminalSession` owns a terminal,
 exposes state flows and an `EventListener`, talks to the host through a `Transport` (`feedOutput`/`finish` are
 thread safe; everything else is main thread only), reaches the system clipboard through a `GhosttyClipboard`, and
 notifies the UI showing it through `GhosttyTerminalHost`. `session.withTerminal { }` lends a typed `GhosttyTerminal`
@@ -86,3 +87,23 @@ that use only `GhosttyTerminalState`'s public API, so apps can swap in their own
   `ghosttyPrebuilt` export once (the only job with zig, tic and the NDK; it alone caches the zig cache directory) and
   uploads it as the `ghostty-prebuilt` artifact; the other jobs build against it. They build everything on Linux, run
   the desktop tests on Linux, macOS and Windows and the Android tests on an emulator, and publish on `v*` tags.
+
+# Browser target
+
+`:library` and `:library-compose` also target `wasmJs`. `jvmSharedMain` holds JNI, direct ByteBuffer
+storage and JVM synchronization; `skiaMain` shares text shaping, glyph fallback and IME state between
+web and desktop. Keep Java imports out of commonMain. The browser ABI (`native/src/wasm.zig`) shares
+Session and snapshot logic with JNI; Session callbacks carry host-neutral contexts, never JNI types.
+`ghosttyWasm` participates in the prebuilt export. Browser apps must await GhosttyWebAssembly.load()
+before constructing a session. The binary is published with classifier ghostty-vt / extension wasm.
+
+`:demo-web:offlineZip` builds a static package that must open directly through file:// without a local server.
+Webpack adapts Skiko's loader before minification; the packager converts runtime assets into classic
+script data. Keep its loader-contract assertions. Never replace the offline contract with a local server.
+CJK and emoji fonts may be fetched from Google Fonts and jsDelivr when online; the bundled Latin face is local.
+The offline output is also the Pages site. Do not install or run browsers in GitHub Actions.
+The web demo chrome is Compose Multiplatform (language: browser locale, Chinese or English;
+appearance: system / light / dark). The web demo chrome is Compose Multiplatform (language: browser locale, Chinese or English;
+appearance: system / light / dark). Browser tests run locally in demo-web/browser-tests; run npm ci,
+playwright install, then npm test after producing the offline package. Check keyboards, IME, clear-button
+focus, completion, Unicode/emoji, paste and resizing in Chromium, Firefox and WebKit.

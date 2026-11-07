@@ -455,8 +455,14 @@ internal class TerminalController(
     // Clipboard
 
     fun paste() {
-        val text = clipboard.getText()
-        if (text.isNullOrEmpty() || session == null) return
+        val target = session ?: return
+        clipboard.readText { text ->
+            if (session === target && text != null) paste(text)
+        }
+    }
+
+    fun paste(text: String) {
+        if (text.isEmpty() || session == null) return
         if (GhosttyTerminal.isPasteSafe(text)) {
             sendPaste(text)
         } else {
@@ -825,10 +831,14 @@ internal class TerminalController(
 
 /** Kitty graphics images as bitmaps, kept by image generation up to a total pixel budget. */
 private class KittyImageCache {
-    private val images = LinkedHashMap<Long, ImageBitmap>(16, 0.75f, true)
+    private val images = LinkedHashMap<Long, ImageBitmap>()
     private var pixels = 0L
 
-    operator fun get(generation: Long): ImageBitmap? = images[generation]
+    operator fun get(generation: Long): ImageBitmap? {
+        val image = images.remove(generation) ?: return null
+        images[generation] = image
+        return image
+    }
 
     fun update(terminal: GhosttyTerminal, render: GhosttyRenderState) {
         for (placement in render.kittyPlacements) {

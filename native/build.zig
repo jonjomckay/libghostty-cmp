@@ -4,6 +4,21 @@ pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    if (target.result.cpu.arch.isWasm()) {
+        const mod = b.createModule(.{
+            .root_source_file = b.path("src/wasm.zig"),
+            .target = target,
+            .optimize = optimize,
+        });
+        mod.addImport("ghostty-vt", ghosttyDependency(b, target, optimize).module("ghostty-vt"));
+        const wasm = b.addExecutable(.{ .name = "ghostty-vt", .root_module = mod });
+        wasm.entry = .disabled;
+        wasm.rdynamic = true;
+        wasm.stack_size = 128 * 1024;
+        b.installArtifact(wasm);
+        return;
+    }
+
     const lib = b.addLibrary(.{
         .name = "ghostty_jni",
         .linkage = .dynamic,

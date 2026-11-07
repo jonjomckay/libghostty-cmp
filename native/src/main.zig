@@ -8,13 +8,46 @@ const jni = @import("jni.zig");
 const Session = @import("Session.zig");
 const snapshot = @import("snapshot.zig");
 const kitty = @import("kitty.zig");
+const operations = @import("Operations.zig");
 
 const package = "io/github/xchacha20_poly1305/libghostty/";
-const vt_class = package ++ "GhosttyVt";
+const vt_class = package ++ "GhosttyJni";
 const callbacks_class = package ++ "GhosttyVtCallbacks";
 const CallbacksRef = jni.Ref("L" ++ callbacks_class ++ ";");
 
 const alloc = std.heap.c_allocator;
+
+const CallbackMethods = struct {
+    clipboard_has_text: jni.MethodId,
+    read_clipboard_for_program: jni.MethodId,
+};
+var callback_methods: ?CallbackMethods = null;
+
+const JniCallbacks = struct {
+    object: jni.Object,
+    env: ?*jni.Env = null,
+
+    fn hasText(context: ?*anyopaque) bool {
+        const self: *JniCallbacks = @ptrCast(@alignCast(context.?));
+        if (self.object == null) return false;
+        const env = self.env orelse return false;
+        const methods = callback_methods orelse return false;
+        const result = env.call("CallBooleanMethodA", .{ self.object, methods.clipboard_has_text, null });
+        return !env.clearException() and result != 0;
+    }
+
+    fn read(context: ?*anyopaque, allocator: std.mem.Allocator, granted: bool) ?[]u8 {
+        const self: *JniCallbacks = @ptrCast(@alignCast(context.?));
+        if (self.object == null) return null;
+        const env = self.env orelse return null;
+        const methods = callback_methods orelse return null;
+        const args = [_]jni.Value{.{ .z = @intFromBool(granted) }};
+        const data: jni.ByteArray = @ptrCast(env.call("CallObjectMethodA", .{ self.object, methods.read_clipboard_for_program, &args }));
+        if (env.clearException() or data == null) return null;
+        defer env.call("DeleteLocalRef", .{data});
+        return env.byteArrayAlloc(allocator, data) catch null;
+    }
+};
 
 pub const std_options: std.Options = .{
     .logFn = log,
@@ -53,7 +86,7 @@ export fn JNI_OnLoad(vm: *jni.JavaVm, _: ?*anyopaque) jni.Int {
     if (!env.registerNatives(vt_cls, natives)) return jni.err;
 
     const callbacks_cls = env.call("FindClass", .{callbacks_class}) orelse return jni.err;
-    Session.callback_methods = .{
+    callback_methods = .{
         .clipboard_has_text = env.call("GetMethodID", .{ callbacks_cls, "clipboardHasText", "()Z" }) orelse return jni.err,
         .read_clipboard_for_program = env.call("GetMethodID", .{ callbacks_cls, "readClipboardForProgram", "(Z)[B" }) orelse return jni.err,
     };
@@ -114,29 +147,10 @@ fn optionalBytes(env: *jni.Env, bytes: ?[]const u8) jni.ByteArray {
     return env.newByteArray(b);
 }
 
-fn rgbFromArgb(value: i64) ?vt.color.RGB {
-    if (value < 0) return null;
-    return .{
-        .r = @truncate(@as(u64, @intCast(value)) >> 16),
-        .g = @truncate(@as(u64, @intCast(value)) >> 8),
-        .b = @truncate(@as(u64, @intCast(value))),
-    };
-}
-
-fn viewportPin(t: *vt.Terminal, col: i32, row: i32) ?vt.Pin {
-    if (col < 0 or row < 0) return null;
-    return t.screens.active.pages.pin(.{ .viewport = .{
-        .x = std.math.cast(u16, col) orelse return null,
-        .y = std.math.cast(u32, row) orelse return null,
-    } });
-}
-
-fn installSelection(s: *Session, selection: ?vt.Selection) bool {
-    const sel = selection orelse return false;
-    s.terminal.screens.active.select(sel) catch return false;
-    s.markDirty();
-    return true;
-}
+const rgbFromArgb = operations.rgbFromArgb;
+const viewportPin = operations.viewportPin;
+const installSelection = operations.installSelection;
+const mods = operations.mods;
 
 fn formatSelection(env: *jni.Env, s: *Session, selection: ?vt.Selection) jni.ByteArray {
     var formatter: vt.formatter.TerminalFormatter = .init(&s.terminal, .{
@@ -153,10 +167,6 @@ fn formatSelection(env: *jni.Env, s: *Session, selection: ?vt.Selection) jni.Byt
 }
 
 /// Modifiers as `GhosttyMods` bits (ghostty's packed `input.KeyMods`).
-fn mods(bits: i32) vt.input.KeyMods {
-    return @bitCast(@as(u16, @truncate(@as(u32, @bitCast(bits)))));
-}
-
 /// The native methods of GhosttyVt. Names and parameter types define the
 /// registered JNI methods.
 const natives = struct {
@@ -179,7 +189,16 @@ const natives = struct {
         defer if (terminfo) |name| alloc.free(name);
 
         const callbacks_ref = if (callbacks != null) env.call("NewGlobalRef", .{callbacks}) else null;
-        const s = Session.create(alloc, @ptrCast(callbacks_ref), .{
+        const context = alloc.create(JniCallbacks) catch {
+            if (callbacks_ref != null) env.call("DeleteGlobalRef", .{callbacks_ref});
+            return 0;
+        };
+        context.* = .{ .object = @ptrCast(callbacks_ref) };
+        const s = Session.create(alloc, .{
+            .context = context,
+            .has_text = &JniCallbacks.hasText,
+            .read = &JniCallbacks.read,
+        }, .{
             .cols = std.math.cast(u16, cols) orelse 0,
             .rows = std.math.cast(u16, rows) orelse 0,
             .max_scrollback_lines = @intCast(@max(max_scrollback_lines, 0)),
@@ -191,6 +210,7 @@ const natives = struct {
         }) catch |err| {
             std.log.err("failed to create terminal session: {t}", .{err});
             if (callbacks_ref != null) env.call("DeleteGlobalRef", .{callbacks_ref});
+            alloc.destroy(context);
             return 0;
         };
         return @intCast(@intFromPtr(s));
@@ -198,7 +218,9 @@ const natives = struct {
 
     pub fn nativeFree(env: *jni.Env, _: jni.Object, handle: i64) void {
         const s = session(handle);
-        if (s.callbacks != null) env.call("DeleteGlobalRef", .{s.callbacks});
+        const context: *JniCallbacks = @ptrCast(@alignCast(s.callbacks.context.?));
+        if (context.object != null) env.call("DeleteGlobalRef", .{context.object});
+        alloc.destroy(context);
         s.destroy();
     }
 
@@ -218,7 +240,10 @@ const natives = struct {
             const bytes = alloc.alloc(u8, @intCast(length)) catch return null;
             defer alloc.free(bytes);
             env.call("GetByteArrayRegion", .{ data, offset, length, bytes.ptr });
-            s.write(env, bytes);
+            const context: *JniCallbacks = @ptrCast(@alignCast(s.callbacks.context.?));
+            context.env = env;
+            defer context.env = null;
+            s.write(bytes);
         }
         return optionalBytes(env, s.pty_out.items);
     }

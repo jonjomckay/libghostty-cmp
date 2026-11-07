@@ -1,0 +1,20 @@
+<resources>
+    <string name="document_title">Terminal demo · Ghostty</string>
+    <string name="app_title">Terminal demo</string>
+    <string name="source">Source</string>
+    <string name="run_example">Run example</string>
+    <string name="run_example_hint">Text, emoji, color and control characters</string>
+    <string name="paste">Paste</string>
+    <string name="paste_hint">Paste clipboard</string>
+    <string name="clear">Clear</string>
+    <string name="clear_hint">Clear screen · Ctrl+L</string>
+    <string name="loading">Loading the terminal…</string>
+    <string name="error_prefix">Unable to start: %1$s</string>
+    <string name="terminal_heading">guest@ghostty: ~</string>
+    <string name="footer_keys">Tab complete · ↑ ↓ history · Ctrl+L clear · type help for commands</string>
+    <string name="language_english">English</string>
+    <string name="language_chinese">中文</string>
+    <string name="theme_system">System</string>
+    <string name="theme_light">Light</string>
+    <string name="theme_dark">Dark</string>
+</resources>

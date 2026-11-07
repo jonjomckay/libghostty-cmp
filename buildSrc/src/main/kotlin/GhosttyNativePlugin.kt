@@ -100,6 +100,23 @@ abstract class GhosttyJniTask @Inject constructor(
     }
 }
 
+/** Builds the freestanding browser backend, without libc or the Android NDK. */
+@CacheableTask
+abstract class GhosttyWasmTask @Inject constructor(
+    execOperations: ExecOperations,
+    private val fileSystemOperations: FileSystemOperations,
+) : GhosttyZigTask(execOperations) {
+    @TaskAction
+    fun run() {
+        val prefix = temporaryDir
+        zigBuild(prefix, "-Dtarget=wasm32-freestanding", "-Doptimize=ReleaseSmall")
+        fileSystemOperations.sync {
+            from(File(prefix, "bin/ghostty-vt.wasm"))
+            into(outputDir)
+        }
+    }
+}
+
 /** Generates the Kotlin mirrors of ghostty's input types (`zig build gen-kotlin`). */
 @CacheableTask
 abstract class GhosttyGenKotlinTask @Inject constructor(
@@ -187,7 +204,12 @@ class GhosttyNativePlugin : Plugin<Project> {
             configure()
         }
 
-        project.extensions.add("ghosttyNative", GhosttyNative(ndk, androidJni, desktopJni, kotlin))
+        val wasm = env.register(
+            "ghosttyWasm", GhosttyWasmTask::class.java,
+            project.layout.buildDirectory.dir("ghostty-wasm"),
+        ) { configure() }
+
+        project.extensions.add("ghosttyNative", GhosttyNative(ndk, androidJni, desktopJni, kotlin, wasm))
     }
 }
 
@@ -200,4 +222,6 @@ class GhosttyNative(
     val desktopJni: TaskProvider<GhosttyOutputTask>,
     /** Generated Kotlin sources. */
     val kotlin: TaskProvider<GhosttyOutputTask>,
+    /** Freestanding browser Wasm binary. */
+    val wasm: TaskProvider<GhosttyOutputTask>,
 )

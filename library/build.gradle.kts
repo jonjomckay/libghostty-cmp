@@ -1,3 +1,5 @@
+import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
+
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.android.kotlin.multiplatform.library)
@@ -38,7 +40,19 @@ kotlin {
         }
     }
     jvm("desktop")
+    @OptIn(org.jetbrains.kotlin.gradle.ExperimentalWasmDsl::class)
+    wasmJs { browser() }
 
+    @OptIn(ExperimentalKotlinGradlePluginApi::class)
+    applyDefaultHierarchyTemplate {
+        common {
+            group("jvmShared") {
+                withJvm()
+                // AGP's KMP Android library target is not the legacy KotlinAndroidTarget.
+                withCompilations { it.target.platformType == org.jetbrains.kotlin.gradle.plugin.KotlinPlatformType.androidJvm }
+            }
+        }
+    }
     sourceSets {
         commonMain {
             kotlin.srcDir(ghosttyNative.kotlin.flatMap { it.outputDir })
@@ -46,6 +60,7 @@ kotlin {
                 api(libs.kotlinx.coroutines.core)
             }
         }
+        wasmJsMain { resources.srcDir(ghosttyNative.wasm.flatMap { it.outputDir }) }
         androidMain.dependencies {
             implementation(libs.kotlinx.coroutines.android)
         }
@@ -77,5 +92,23 @@ mavenPublishing {
     signAllPublications()
     pom {
         properties.set(mapOf("ghostty.commit" to ghosttyCommit(project)))
+    }
+}
+
+// Explicit binary artifact: browser applications can package it without reaching into another project's tasks.
+val ghosttyWasmBinary = configurations.create("ghosttyWasmBinary") {
+    isCanBeConsumed = true
+    isCanBeResolved = false
+}
+artifacts.add(ghosttyWasmBinary.name, ghosttyNative.wasm.flatMap { it.outputDir.file("ghostty-vt.wasm") }) {
+    builtBy(ghosttyNative.wasm)
+}
+publishing {
+    publications.withType<MavenPublication>().matching { it.name == "wasmJs" }.configureEach {
+        artifact(ghosttyNative.wasm.flatMap { it.outputDir.file("ghostty-vt.wasm") }) {
+            classifier = "ghostty-vt"
+            extension = "wasm"
+            builtBy(ghosttyNative.wasm)
+        }
     }
 }

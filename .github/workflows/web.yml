@@ -1,0 +1,96 @@
+name: Web demo
+
+on:
+  push:
+    branches: [cmp]
+    paths:
+      - "demo-web/**"
+      - "library/**"
+      - "library-compose/**"
+      - "native/**"
+      - "patches/ghostty/**"
+      - "buildSrc/**"
+      - "gradle/**"
+      - "gradle.properties"
+      - "build.gradle.kts"
+      - "settings.gradle.kts"
+      - "kotlin-js-store/**"
+      - ".github/workflows/web.yml"
+      - ".github/actions/setup/**"
+  pull_request:
+    paths:
+      - "demo-web/**"
+      - "library/**"
+      - "library-compose/**"
+      - "native/**"
+      - "patches/ghostty/**"
+      - "buildSrc/**"
+      - "gradle/**"
+      - "gradle.properties"
+      - "build.gradle.kts"
+      - "settings.gradle.kts"
+      - "kotlin-js-store/**"
+      - ".github/workflows/web.yml"
+      - ".github/actions/setup/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+        with:
+          prebuilt: "false"
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.0
+          use-cache: false
+      - name: Read the pinned Ghostty revision
+        id: ghostty
+        run: echo "commit=$(sed -n 's/^GHOSTTY_COMMIT=//p' gradle.properties)" >> "$GITHUB_OUTPUT"
+      - name: Restore Zig objects and pinned source packages
+        uses: actions/cache@v6
+        with:
+          path: |
+            build/ghostty/zig-cache
+            native/zig-pkg
+          key: ghostty-web-0.17.0-${{ steps.ghostty.outputs.commit }}-${{ hashFiles('patches/ghostty/*.patch', 'native/**/*.zig', 'native/build.zig.zon', 'buildSrc/src/main/kotlin/GhosttyNativePlugin.kt') }}
+          restore-keys: |
+            ghostty-web-0.17.0-${{ steps.ghostty.outputs.commit }}-
+            ghostty-jni-0.17.0-${{ steps.ghostty.outputs.commit }}-
+      - name: Build the offline web demo
+        run: ./gradlew :demo-web:offlineZip
+      - uses: actions/upload-artifact@v7
+        with:
+          name: web-demo-offline
+          path: demo-web/build/distributions/*.zip
+          if-no-files-found: error
+      - name: Prepare Pages download
+        run: cp demo-web/build/distributions/*.zip demo-web/build/offline/demo-web-offline.zip
+      - uses: actions/upload-pages-artifact@v5
+        if: github.ref == 'refs/heads/cmp' && github.event_name != 'pull_request'
+        with:
+          path: demo-web/build/offline
+
+  deploy:
+    if: github.ref == 'refs/heads/cmp' && github.event_name != 'pull_request'
+    needs: web
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

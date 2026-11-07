@@ -9,3 +9,7 @@ build/
 /native/.zig-cache/
 /native/zig-out/
 /native/zig-pkg/
+
+node_modules/
+/demo-web/browser-tests/test-results/
+/demo-web/browser-tests/playwright-report/

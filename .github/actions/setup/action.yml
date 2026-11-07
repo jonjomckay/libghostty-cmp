@@ -15,6 +15,12 @@ runs:
       with:
         distribution: temurin
         java-version: 17
+    - uses: actions/setup-node@v6
+      with:
+        node-version: 26
+    - name: Use HTTPS for Kotlin browser tooling dependencies
+      shell: bash
+      run: git config --global url."https://github.com/".insteadOf ssh://git@github.com/
     - uses: gradle/actions/setup-gradle@v6
     - name: Download the native outputs
       if: inputs.prebuilt == 'true'

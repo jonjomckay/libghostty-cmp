@@ -1,6 +1,5 @@
 package io.github.xchacha20_poly1305.libghostty
 
-import java.nio.ByteBuffer
 
 /**
  * The terminal of a [GhosttyTerminalSession], lent out by [GhosttyTerminalSession.withTerminal] and valid only
@@ -39,7 +38,7 @@ public class GhosttyTerminal internal constructor() {
 
     /** The URI of the OSC 8 hyperlink at a cell. */
     public fun hyperlinkAt(column: Int, row: Int): String? =
-        GhosttyVt.nativeHyperlinkAt(handle, column, row)?.toString(Charsets.UTF_8)
+        GhosttyVt.nativeHyperlinkAt(handle, column, row)?.decodeToString()
 
     public fun selectWord(column: Int, row: Int): Boolean = GhosttyVt.nativeSelectWord(handle, column, row)
 
@@ -53,9 +52,9 @@ public class GhosttyTerminal internal constructor() {
         GhosttyVt.nativeClearSelection(handle)
     }
 
-    public fun selectionText(): String? = GhosttyVt.nativeSelectionText(handle)?.toString(Charsets.UTF_8)
+    public fun selectionText(): String? = GhosttyVt.nativeSelectionText(handle)?.decodeToString()
 
-    public fun viewportText(): String? = GhosttyVt.nativeViewportText(handle)?.toString(Charsets.UTF_8)
+    public fun viewportText(): String? = GhosttyVt.nativeViewportText(handle)?.decodeToString()
 
     /**
      * Encodes a key event for the program, following its keyboard modes. [text] is what the key produces with
@@ -76,7 +75,7 @@ public class GhosttyTerminal internal constructor() {
         mods,
         unshiftedCodepoint,
         composing,
-        text?.toByteArray(Charsets.UTF_8),
+        text?.encodeToByteArray(),
     )?.takeIf { it.isNotEmpty() }
 
     /** Encodes a mouse event in the program's mouse reporting mode, or returns null when it is not reported. */
@@ -97,7 +96,7 @@ public class GhosttyTerminal internal constructor() {
 
     /** Encodes pasted text, bracketing it when the program enabled bracketed paste. */
     public fun encodePaste(text: String): ByteArray? =
-        GhosttyVt.nativeEncodePaste(handle, text.toByteArray(Charsets.UTF_8))?.takeIf { it.isNotEmpty() }
+        GhosttyVt.nativeEncodePaste(handle, text.encodeToByteArray())?.takeIf { it.isNotEmpty() }
 
     /** The current frame of a Kitty graphics image. */
     public fun kittyImage(imageId: Int): GhosttyImage? {
@@ -111,7 +110,7 @@ public class GhosttyTerminal internal constructor() {
         return GhosttyImage(width, height, pixels.copyOfRange(2, 2 + width * height))
     }
 
-    internal fun snapshot(buffer: ByteBuffer, full: Boolean): Int = GhosttyVt.nativeSnapshot(handle, buffer, full)
+    internal fun snapshot(buffer: SnapshotBuffer, full: Boolean): Int = GhosttyVt.nativeSnapshot(handle, buffer, full)
 
     internal fun kittyPlacements(): LongArray? = GhosttyVt.nativeKittyPlacements(handle)
 
@@ -120,7 +119,7 @@ public class GhosttyTerminal internal constructor() {
          * Whether pasting [text] cannot run commands by itself: it has no line break and cannot end bracketed
          * paste early.
          */
-        public fun isPasteSafe(text: String): Boolean = GhosttyVt.nativeIsPasteSafe(text.toByteArray(Charsets.UTF_8))
+        public fun isPasteSafe(text: String): Boolean = GhosttyVt.nativeIsPasteSafe(text.encodeToByteArray())
     }
 }
 

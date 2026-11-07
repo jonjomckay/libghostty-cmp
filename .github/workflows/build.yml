@@ -6,7 +6,15 @@ on:
       - cmp
     tags:
       - "v*"
+    paths-ignore:
+      - "demo-web/**"
+      - ".github/workflows/web.yml"
+      - "**/*.md"
   pull_request:
+    paths-ignore:
+      - "demo-web/**"
+      - ".github/workflows/web.yml"
+      - "**/*.md"
   workflow_dispatch:
 
 permissions:
@@ -99,7 +107,8 @@ jobs:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
       - name: Build
-        run: ./gradlew assemble
+        # The Web demo workflow owns its executable distribution.
+        run: ./gradlew assemble -x :demo-web:assemble
       - uses: actions/upload-artifact@v7
         with:
           name: libraries
@@ -193,12 +202,29 @@ jobs:
           disable-animations: true
           script: ./gradlew :library:connectedAndroidDeviceTest :library-extras:connectedAndroidDeviceTest
 
+  web-demo-release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: native
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+      - name: Build the versioned offline web demo
+        shell: bash
+        run: ./gradlew :demo-web:offlineZip -PVERSION_NAME="${GITHUB_REF_NAME#v}"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: web-demo-release
+          path: demo-web/build/distributions/*.zip
+          if-no-files-found: error
+
   publish:
     if: startsWith(github.ref, 'refs/tags/v')
     needs:
       - build
       - desktop-test
       - android-test
+      - web-demo-release
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -220,6 +246,11 @@ jobs:
           pattern: desktop-demo-*
           path: desktop-demo-jars
           merge-multiple: true
+      - name: Download the offline web demo
+        uses: actions/download-artifact@v8
+        with:
+          name: web-demo-release
+          path: web-demo-release
       - name: Publish to Maven Central
         run: ./gradlew publishAndReleaseToMavenCentral -PVERSION_NAME="$VERSION"
         env:
@@ -238,6 +269,7 @@ jobs:
             library*/build/outputs/aar/*.aar \
             library*/build/libs/*-desktop.jar \
             desktop-demo-jars/*.jar \
+            web-demo-release/*.zip \
             --title "$GITHUB_REF_NAME" \
             --notes "ghostty commit: $(sed -n 's/^GHOSTTY_COMMIT=//p' gradle.properties)" \
             "${prerelease[@]}"

@@ -1,29 +1,16 @@
 package io.github.xchacha20_poly1305.libghostty.compose
 
-import androidx.compose.runtime.snapshots.Snapshot
-import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.awt.awtEventOrNull
 import androidx.compose.ui.focus.FocusEventModifierNode
 import androidx.compose.ui.focus.FocusState
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyInputModifierNode
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.node.ModifierNodeElement
 import androidx.compose.ui.platform.InspectorInfo
-import androidx.compose.ui.platform.PlatformTextInputMethodRequest
 import androidx.compose.ui.platform.PlatformTextInputModifierNode
 import androidx.compose.ui.platform.establishTextInputSession
-import androidx.compose.ui.text.TextLayoutResult
-import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.input.EditCommand
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.ImeOptions
-import androidx.compose.ui.text.input.TextEditingScope
-import androidx.compose.ui.text.input.TextEditorState
-import androidx.compose.ui.text.input.TextFieldValue
 import io.github.xchacha20_poly1305.libghostty.GhosttyKey
 import io.github.xchacha20_poly1305.libghostty.GhosttyKeyAction
 import io.github.xchacha20_poly1305.libghostty.GhosttyMods
@@ -166,104 +153,5 @@ private class TerminalInputNode(var controller: TerminalController) :
             else -> return false
         }
         return true
-    }
-}
-
-/** What a key types on a US layout without modifiers, which the Kitty keyboard protocol reports. */
-private val GhosttyKey.unshiftedCodepoint: Int
-    get() {
-        val name = name
-        return when {
-            name.startsWith("KEY_") && name.length == 5 -> name[4].lowercaseChar().code
-            name.startsWith("DIGIT_") -> name[6].code
-            else -> when (this) {
-                GhosttyKey.SPACE -> ' '.code
-                GhosttyKey.MINUS -> '-'.code
-                GhosttyKey.EQUAL -> '='.code
-                GhosttyKey.BRACKET_LEFT -> '['.code
-                GhosttyKey.BRACKET_RIGHT -> ']'.code
-                GhosttyKey.BACKSLASH -> '\\'.code
-                GhosttyKey.SEMICOLON -> ';'.code
-                GhosttyKey.QUOTE -> '\''.code
-                GhosttyKey.BACKQUOTE -> '`'.code
-                GhosttyKey.COMMA -> ','.code
-                GhosttyKey.PERIOD -> '.'.code
-                GhosttyKey.SLASH -> '/'.code
-                else -> 0
-            }
-        }
-    }
-
-/**
- * The editor the input method edits: just its own composition, which the terminal draws at the cursor until the
- * input method commits it.
- */
-@OptIn(ExperimentalComposeUiApi::class)
-private class CompositionRequest(private val controller: TerminalController) : PlatformTextInputMethodRequest {
-
-    override val state: TextEditorState = object : TextEditorState {
-        override val text: String
-            get() = controller.composingText.orEmpty()
-        override val length: Int
-            get() = text.length
-
-        override fun get(index: Int): Char = text[index]
-
-        override fun subSequence(startIndex: Int, endIndex: Int): CharSequence = text.subSequence(startIndex, endIndex)
-
-        override val selection: TextRange
-            get() = TextRange(text.length)
-        override val composition: TextRange?
-            get() = controller.composingText?.let { TextRange(0, it.length) }
-    }
-
-    override val value: () -> TextFieldValue = {
-        TextFieldValue(state.text, state.selection, state.composition)
-    }
-
-    override val imeOptions: ImeOptions = ImeOptions(autoCorrect = false, imeAction = ImeAction.None)
-
-    override val onEditCommand: (List<EditCommand>) -> Unit = {}
-
-    override val onImeAction: ((ImeAction) -> Unit)? = null
-
-    override val textLayoutResult: () -> TextLayoutResult? = { null }
-
-    /** Where candidate windows go: the cursor cell. */
-    override val focusedRectInRoot: () -> Rect? = { controller.cursorRectInRoot() }
-
-    override val textFieldRectInRoot: () -> Rect? = { controller.cursorRectInRoot() }
-
-    override val textClippingRectInRoot: () -> Rect? = { null }
-
-    override val unclippedTextOffsetInRoot: () -> Offset? = { null }
-
-    override val editText: (block: TextEditingScope.() -> Unit) -> Unit = { block ->
-        Snapshot.withMutableSnapshot { EditingScope().block() }
-    }
-
-    private inner class EditingScope : TextEditingScope {
-        override fun commitText(text: CharSequence, newCursorPosition: Int) {
-            controller.setComposing(null)
-            controller.sendText(text.toString())
-        }
-
-        override fun setComposingText(text: CharSequence, newCursorPosition: Int) {
-            controller.setComposing(text.toString())
-        }
-
-        override fun finishComposingText() {
-            val composing = controller.composingText ?: return
-            controller.setComposing(null)
-            controller.sendText(composing)
-        }
-
-        override fun deleteSurroundingTextInCodePoints(lengthBeforeCursor: Int, lengthAfterCursor: Int) {
-            repeat(lengthBeforeCursor) { controller.sendKey(GhosttyKey.BACKSPACE) }
-        }
-
-        override fun setSelection(start: Int, end: Int) {}
-
-        override fun setComposingRegion(start: Int, end: Int) {}
     }
 }

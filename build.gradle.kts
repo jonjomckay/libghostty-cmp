@@ -11,6 +11,13 @@ plugins {
 }
 
 allprojects {
+    // Executable tasks use a project-scoped Node environment, separate from Wasm's root tooling setup.
+    plugins.withType<org.jetbrains.kotlin.gradle.targets.wasm.nodejs.WasmNodeJsPlugin> {
+        extensions.configure<org.jetbrains.kotlin.gradle.targets.wasm.nodejs.WasmNodeJsEnvSpec> {
+            download.set(false)
+            command.set("node")
+        }
+    }
     tasks.withType<AbstractArchiveTask>().configureEach {
         isPreserveFileTimestamps = false
         isReproducibleFileOrder = true
@@ -31,4 +38,16 @@ subprojects {
             }
         }
     }
+}
+
+// Use the Node installation supplied by the developer or CI, without adding a distribution repository.
+plugins.withType<org.jetbrains.kotlin.gradle.targets.wasm.nodejs.WasmNodeJsRootPlugin> {
+    extensions.configure<org.jetbrains.kotlin.gradle.targets.wasm.nodejs.WasmNodeJsEnvSpec> {
+        download.set(false)
+    }
+}
+
+// Kotlin's bundled browser tooling currently includes a Git-hosted Karma dependency.
+tasks.withType<org.jetbrains.kotlin.gradle.targets.js.npm.tasks.KotlinToolingSetupTask>().configureEach {
+    args.add("--allow-git")
 }

@@ -6,7 +6,6 @@ const Session = @This();
 const std = @import("std");
 const builtin = @import("builtin");
 const vt = @import("ghostty-vt");
-const jni = @import("jni.zig");
 
 const Handler = vt.TerminalStream.Handler;
 const Effects = Handler.Effects;
@@ -73,16 +72,21 @@ progress_percent: i32 = -1,
 color_scheme_dark: bool = true,
 background: i32 = 0,
 
-/// The session's GhosttyVtCallbacks, for clipboard reads the program
-/// requests. `env` is only set while Kotlin is inside a call that can run
-/// the stream.
-callbacks: jni.Object,
-env: ?*jni.Env = null,
+/// Host callbacks are optional and synchronous. The host owns their context.
+/// Browser hosts deny program clipboard reads; JNI hosts ask Kotlin for approved data.
+callbacks: Callbacks = .{},
+
+pub const Callbacks = struct {
+    context: ?*anyopaque = null,
+    has_text: ?*const fn (?*anyopaque) bool = null,
+    read: ?*const fn (?*anyopaque, std.mem.Allocator, bool) ?[]u8 = null,
+};
 
 pub const Options = struct {
     cols: u16,
     rows: u16,
     max_scrollback_lines: usize,
+    image_storage_limit: usize = kitty_image_storage_limit,
     xtversion: []const u8,
     terminfo_name: ?[]const u8,
     cursor_style: vt.CursorStyle,
@@ -91,7 +95,7 @@ pub const Options = struct {
     grapheme_cluster: bool,
 };
 
-pub fn create(alloc: std.mem.Allocator, callbacks: jni.Object, opts: Options) !*Session {
+pub fn create(alloc: std.mem.Allocator, callbacks: Callbacks, opts: Options) !*Session {
     if (opts.cols == 0 or opts.rows == 0) return error.InvalidValue;
 
     const self = try alloc.create(Session);
@@ -113,7 +117,7 @@ pub fn create(alloc: std.mem.Allocator, callbacks: jni.Object, opts: Options) !*
         .cols = opts.cols,
         .rows = opts.rows,
         .max_scrollback_lines = opts.max_scrollback_lines,
-        .kitty_image_storage_limit = kitty_image_storage_limit,
+        .kitty_image_storage_limit = opts.image_storage_limit,
         .colors = .{
             .background = .init(.{ .r = 0, .g = 0, .b = 0 }),
             .foreground = .init(.{ .r = 0xFF, .g = 0xFF, .b = 0xFF }),
@@ -186,10 +190,8 @@ pub fn freeNotification(alloc: std.mem.Allocator, n: Notification) void {
 
 /// Feeds program output to the terminal. The pty response is left in
 /// `pty_out`.
-pub fn write(self: *Session, env: *jni.Env, data: []const u8) void {
+pub fn write(self: *Session, data: []const u8) void {
     self.pty_out.clearRetainingCapacity();
-    self.env = env;
-    defer self.env = null;
     self.stream.nextSlice(data);
 
     // OSC 11 changes the background without any effect callback; diff the
@@ -232,7 +234,7 @@ pub fn argb(rgb: vt.color.RGB) i32 {
 
 fn fromHandler(handler: *Handler) *Session {
     const stream: *vt.TerminalStream = @fieldParentPtr("handler", handler);
-    return @fieldParentPtr("stream", stream);
+    return @alignCast(@fieldParentPtr("stream", stream));
 }
 
 fn EffectResult(comptime name: []const u8) type {
@@ -280,7 +282,7 @@ fn desktopNotification(handler: *Handler, notification: vt.StreamAction.ShowDesk
 
 fn progressReport(handler: *Handler, report: vt.osc.Command.ProgressReport) void {
     const self = fromHandler(handler);
-    self.progress_state = @intFromEnum(report.state);
+    self.progress_state = @backingInt(report.state);
     self.progress_percent = if (report.progress) |p| p else -1;
     self.pending_events |= Event.progress;
 }
@@ -329,28 +331,17 @@ fn clipboardWrite(handler: *Handler, write_: vt.clipboard.Write) void {
 /// before a program may read it.
 fn clipboardRead(handler: *Handler, read: vt.clipboard.Read) void {
     const self = fromHandler(handler);
-    const env = self.env orelse return read.reply(.denied);
-    const methods = callback_methods orelse return read.reply(.denied);
-
+    const callback = self.callbacks.read orelse return read.reply(.denied);
     const text_mime: ?[]const u8 = for (read.mimes) |mime| {
         if (vt.clipboard.isTextMime(mime)) break mime;
     } else null;
-
     const available: []const []const u8 = available: {
         if (!read.list) break :available &.{};
-        const has_text = env.call("CallBooleanMethodA", .{ self.callbacks, methods.clipboard_has_text, null });
-        if (env.clearException() or has_text == 0) break :available &.{};
-        break :available &.{"text/plain"};
+        const has = self.callbacks.has_text orelse break :available &.{};
+        break :available if (has(self.callbacks.context)) &.{"text/plain"} else &.{};
     };
-
     const mime = text_mime orelse return read.reply(.{ .success = .{ .available = available } });
-
-    const args = [_]jni.Value{.{ .z = @intFromBool(read.granted) }};
-    const data: jni.ByteArray = @ptrCast(env.call("CallObjectMethodA", .{ self.callbacks, methods.read_clipboard_for_program, &args }));
-    if (env.clearException() or data == null) return read.reply(.denied);
-    defer env.call("DeleteLocalRef", .{data});
-
-    const text = env.byteArrayAlloc(self.alloc, data) catch return read.reply(.io_error);
+    const text = callback(self.callbacks.context, self.alloc, read.granted) orelse return read.reply(.denied);
     defer self.alloc.free(text);
     const contents = [_]vt.clipboard.Content{.{ .mime = mime, .data = text }};
     read.reply(.{ .success = .{
@@ -359,12 +350,3 @@ fn clipboardRead(handler: *Handler, read: vt.clipboard.Read) void {
         .remember = true,
     } });
 }
-
-/// Methods on GhosttyVtCallbacks the clipboard read effect calls,
-/// resolved once in JNI_OnLoad.
-pub const CallbackMethods = struct {
-    clipboard_has_text: jni.MethodId,
-    read_clipboard_for_program: jni.MethodId,
-};
-
-pub var callback_methods: ?CallbackMethods = null;

@@ -1,27 +1,8 @@
 package io.github.xchacha20_poly1305.libghostty
 
-import java.nio.ByteBuffer
-
-internal object GhosttyVt {
-    init {
-        loadGhosttyJni()
-    }
-
-    const val EVENT_BELL = 1
-    const val EVENT_TITLE = 1 shl 1
-    const val EVENT_CLIPBOARD = 1 shl 2
-    const val EVENT_PWD = 1 shl 3
-    const val EVENT_NOTIFICATION = 1 shl 4
-    const val EVENT_PROGRESS = 1 shl 5
-    const val EVENT_COLORS = 1 shl 6
-
-    const val PROGRESS_STATE_REMOVE = 0
-    const val PROGRESS_STATE_SET = 1
-    const val PROGRESS_STATE_ERROR = 2
-    const val PROGRESS_STATE_INDETERMINATE = 3
-    const val PROGRESS_STATE_PAUSE = 4
-
-    external fun nativeCreate(
+/** Platform-independent terminal operations. The JVM implementation preserves direct-buffer JNI I/O. */
+internal interface GhosttyBackend {
+    fun nativeCreate(
         cols: Int,
         rows: Int,
         maxScrollbackLines: Long,
@@ -33,31 +14,31 @@ internal object GhosttyVt {
         callbacks: GhosttyVtCallbacks?,
     ): Long
 
-    external fun nativeFree(handle: Long)
+    fun nativeFree(handle: Long)
 
-    external fun nativeWrite(handle: Long, data: ByteArray, offset: Int, length: Int): ByteArray?
+    fun nativeWrite(handle: Long, data: ByteArray, offset: Int, length: Int): ByteArray?
 
-    external fun nativeResize(handle: Long, cols: Int, rows: Int, cellWidthPx: Int, cellHeightPx: Int)
+    fun nativeResize(handle: Long, cols: Int, rows: Int, cellWidthPx: Int, cellHeightPx: Int)
 
-    external fun nativeTakeEventFlags(handle: Long): Int
+    fun nativeTakeEventFlags(handle: Long): Int
 
-    external fun nativeGetTitle(handle: Long): ByteArray?
+    fun nativeGetTitle(handle: Long): ByteArray?
 
-    external fun nativeTakeClipboard(handle: Long): ByteArray?
+    fun nativeTakeClipboard(handle: Long): ByteArray?
 
-    external fun nativeGetPwd(handle: Long): ByteArray?
+    fun nativeGetPwd(handle: Long): ByteArray?
 
-    external fun nativeTakeNotification(handle: Long): ByteArray?
+    fun nativeTakeNotification(handle: Long): ByteArray?
 
-    external fun nativeGetProgress(handle: Long): IntArray?
+    fun nativeGetProgress(handle: Long): IntArray?
 
-    external fun nativeSetColorScheme(handle: Long, dark: Boolean): ByteArray?
+    fun nativeSetColorScheme(handle: Long, dark: Boolean): ByteArray?
 
-    external fun nativeEncodeFocus(handle: Long, gained: Boolean): ByteArray?
+    fun nativeEncodeFocus(handle: Long, gained: Boolean): ByteArray?
 
-    external fun nativeHyperlinkAt(handle: Long, col: Int, row: Int): ByteArray?
+    fun nativeHyperlinkAt(handle: Long, col: Int, row: Int): ByteArray?
 
-    external fun nativeSetTheme(
+    fun nativeSetTheme(
         handle: Long,
         foreground: Long,
         background: Long,
@@ -65,35 +46,28 @@ internal object GhosttyVt {
         palette: LongArray?,
     )
 
-    external fun nativeParseColor(color: String): Int
+    fun nativeParseColor(color: String): Int
 
-    external fun nativeScroll(handle: Long, deltaRows: Int)
+    fun nativeScroll(handle: Long, deltaRows: Int)
 
-    external fun nativeScrollToBottom(handle: Long)
+    fun nativeScrollToBottom(handle: Long)
 
-    external fun nativeScrollbar(handle: Long): LongArray?
+    fun nativeScrollbar(handle: Long): LongArray?
 
-    const val VIEWPORT_ALTERNATE_SCREEN = 1
-    const val VIEWPORT_MOUSE_TRACKING = 2
-    const val VIEWPORT_SYNC_OUTPUT = 4
 
-    external fun nativeViewportState(handle: Long): Int
+    fun nativeViewportState(handle: Long): Int
 
     /** With [full], every row is written, not only those changed since the last snapshot. */
-    external fun nativeSnapshot(handle: Long, buffer: ByteBuffer, full: Boolean): Int
+    fun nativeSnapshot(handle: Long, buffer: SnapshotBuffer, full: Boolean): Int
 
-    const val KITTY_PLACEMENT_LONGS = 14
 
-    external fun nativeKittyPlacements(handle: Long): LongArray?
+    fun nativeKittyPlacements(handle: Long): LongArray?
 
-    external fun nativeKittyImage(handle: Long, imageId: Int): IntArray?
+    fun nativeKittyImage(handle: Long, imageId: Int): IntArray?
 
-    const val KEY_ACTION_RELEASE = 0
-    const val KEY_ACTION_PRESS = 1
-    const val KEY_ACTION_REPEAT = 2
 
     /** [key] is a [GhosttyKey] value and [mods] a combination of [GhosttyMods] bits. */
-    external fun nativeEncodeKey(
+    fun nativeEncodeKey(
         handle: Long,
         key: Int,
         action: Int,
@@ -103,16 +77,8 @@ internal object GhosttyVt {
         utf8: ByteArray?,
     ): ByteArray?
 
-    const val MOUSE_ACTION_PRESS = 0
-    const val MOUSE_ACTION_RELEASE = 1
-    const val MOUSE_ACTION_MOTION = 2
-    const val MOUSE_BUTTON_LEFT = 1
-    const val MOUSE_BUTTON_RIGHT = 2
-    const val MOUSE_BUTTON_MIDDLE = 3
-    const val MOUSE_BUTTON_WHEEL_UP = 4
-    const val MOUSE_BUTTON_WHEEL_DOWN = 5
 
-    external fun nativeEncodeMouse(
+    fun nativeEncodeMouse(
         handle: Long,
         action: Int,
         button: Int,
@@ -121,11 +87,11 @@ internal object GhosttyVt {
         mods: Int,
     ): ByteArray?
 
-    external fun nativeSelectWord(handle: Long, col: Int, row: Int): Boolean
+    fun nativeSelectWord(handle: Long, col: Int, row: Int): Boolean
 
-    external fun nativeSelectAll(handle: Long): Boolean
+    fun nativeSelectAll(handle: Long): Boolean
 
-    external fun nativeSetSelection(
+    fun nativeSetSelection(
         handle: Long,
         anchorCol: Int,
         anchorRow: Int,
@@ -133,17 +99,49 @@ internal object GhosttyVt {
         row: Int,
     ): Boolean
 
-    external fun nativeClearSelection(handle: Long)
+    fun nativeClearSelection(handle: Long)
 
-    external fun nativeSelectionText(handle: Long): ByteArray?
+    fun nativeSelectionText(handle: Long): ByteArray?
 
-    external fun nativeViewportText(handle: Long): ByteArray?
+    fun nativeViewportText(handle: Long): ByteArray?
 
-    external fun nativeTranscriptText(handle: Long): ByteArray?
+    fun nativeTranscriptText(handle: Long): ByteArray?
 
-    external fun nativeGetBackgroundColor(handle: Long): Int
+    fun nativeGetBackgroundColor(handle: Long): Int
 
-    external fun nativeIsPasteSafe(data: ByteArray): Boolean
+    fun nativeIsPasteSafe(data: ByteArray): Boolean
 
-    external fun nativeEncodePaste(handle: Long, data: ByteArray): ByteArray?
+    fun nativeEncodePaste(handle: Long, data: ByteArray): ByteArray?
+}
+
+internal expect fun platformBackend(): GhosttyBackend
+
+internal object GhosttyVt : GhosttyBackend by platformBackend() {
+    const val EVENT_BELL = 1
+    const val EVENT_TITLE = 1 shl 1
+    const val EVENT_CLIPBOARD = 1 shl 2
+    const val EVENT_PWD = 1 shl 3
+    const val EVENT_NOTIFICATION = 1 shl 4
+    const val EVENT_PROGRESS = 1 shl 5
+    const val EVENT_COLORS = 1 shl 6
+    const val PROGRESS_STATE_REMOVE = 0
+    const val PROGRESS_STATE_SET = 1
+    const val PROGRESS_STATE_ERROR = 2
+    const val PROGRESS_STATE_INDETERMINATE = 3
+    const val PROGRESS_STATE_PAUSE = 4
+    const val VIEWPORT_ALTERNATE_SCREEN = 1
+    const val VIEWPORT_MOUSE_TRACKING = 2
+    const val VIEWPORT_SYNC_OUTPUT = 4
+    const val KITTY_PLACEMENT_LONGS = 14
+    const val KEY_ACTION_RELEASE = 0
+    const val KEY_ACTION_PRESS = 1
+    const val KEY_ACTION_REPEAT = 2
+    const val MOUSE_ACTION_PRESS = 0
+    const val MOUSE_ACTION_RELEASE = 1
+    const val MOUSE_ACTION_MOTION = 2
+    const val MOUSE_BUTTON_LEFT = 1
+    const val MOUSE_BUTTON_RIGHT = 2
+    const val MOUSE_BUTTON_MIDDLE = 3
+    const val MOUSE_BUTTON_WHEEL_UP = 4
+    const val MOUSE_BUTTON_WHEEL_DOWN = 5
 }

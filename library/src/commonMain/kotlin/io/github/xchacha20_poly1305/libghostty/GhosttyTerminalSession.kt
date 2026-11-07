@@ -3,11 +3,9 @@ package io.github.xchacha20_poly1305.libghostty
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import java.net.URI
-import java.net.URISyntaxException
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
-import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.concurrent.atomics.AtomicBoolean
+import kotlin.concurrent.atomics.ExperimentalAtomicApi
+import kotlin.concurrent.Volatile
 import kotlin.time.Duration.Companion.milliseconds
 
 /**
@@ -19,6 +17,7 @@ import kotlin.time.Duration.Companion.milliseconds
  *
  * Lifecycle: [close] is idempotent; after it, every method is a no-op.
  */
+@OptIn(ExperimentalAtomicApi::class)
 public class GhosttyTerminalSession(
     options: Options = Options(),
 ) {
@@ -60,7 +59,7 @@ public class GhosttyTerminalSession(
 
     private val mainScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
-    private val terminalAccess = Any()
+    private val terminalAccess = SessionLock()
     private val outputDispatchPending = AtomicBoolean(false)
     private val outputDispatchScheduled = AtomicBoolean(false)
 
@@ -82,7 +81,7 @@ public class GhosttyTerminalSession(
      * Runs [block] with the terminal, holding it against concurrent [feedOutput]; returns null once the session
      * is closed. Main thread only.
      */
-    public fun <T> withTerminal(block: (GhosttyTerminal) -> T): T? = synchronized(terminalAccess) {
+    public fun <T> withTerminal(block: (GhosttyTerminal) -> T): T? = terminalAccess.withLock {
         if (handle == 0L) {
             null
         } else {
@@ -90,7 +89,7 @@ public class GhosttyTerminalSession(
         }
     }
 
-    private inline fun <T> withHandle(block: (Long) -> T): T? = synchronized(terminalAccess) {
+    private fun <T> withHandle(block: (Long) -> T): T? = terminalAccess.withLock {
         if (handle == 0L) {
             null
         } else {
@@ -191,18 +190,18 @@ public class GhosttyTerminalSession(
     }
 
     private fun scheduleOutputDispatch() {
-        outputDispatchPending.set(true)
+        outputDispatchPending.store(true)
         if (!outputDispatchScheduled.compareAndSet(false, true)) return
         mainScope.launch {
             try {
                 do {
-                    outputDispatchPending.set(false)
+                    outputDispatchPending.store(false)
                     withHandle { drainEvents(it) }
                     host?.onTerminalChanged()
-                } while (outputDispatchPending.get())
+                } while (outputDispatchPending.load())
             } finally {
-                outputDispatchScheduled.set(false)
-                if (outputDispatchPending.get()) scheduleOutputDispatch()
+                outputDispatchScheduled.store(false)
+                if (outputDispatchPending.load()) scheduleOutputDispatch()
             }
         }
     }
@@ -211,17 +210,17 @@ public class GhosttyTerminalSession(
         val flags = GhosttyVt.nativeTakeEventFlags(handle)
         if (flags == 0) return
         if (flags and GhosttyVt.EVENT_TITLE != 0) {
-            title.value = GhosttyVt.nativeGetTitle(handle)?.toString(Charsets.UTF_8)
+            title.value = GhosttyVt.nativeGetTitle(handle)?.decodeToString()
         }
         if (flags and GhosttyVt.EVENT_BELL != 0) {
             host?.onBell()
             eventListener?.onBell(this)
         }
         if (flags and GhosttyVt.EVENT_CLIPBOARD != 0) {
-            val text = GhosttyVt.nativeTakeClipboard(handle)?.toString(Charsets.UTF_8)
+            val text = GhosttyVt.nativeTakeClipboard(handle)?.decodeToString()
             if (!text.isNullOrEmpty()) {
                 try {
-                    clipboard?.setText(text)
+                    clipboard?.setTextForProgram(text)
                 } catch (e: Exception) {
                     logError(TAG, "clipboard write failed", e)
                 }
@@ -229,17 +228,17 @@ public class GhosttyTerminalSession(
         }
         if (flags and GhosttyVt.EVENT_PWD != 0) {
             workingDirectory.value = GhosttyVt.nativeGetPwd(handle)
-                ?.toString(Charsets.UTF_8)
+                ?.decodeToString()
                 ?.let(::pwdToPath)
         }
         if (flags and GhosttyVt.EVENT_NOTIFICATION != 0) {
             while (true) {
                 val packed = GhosttyVt.nativeTakeNotification(handle) ?: break
-                val titleLength = ByteBuffer.wrap(packed).order(ByteOrder.LITTLE_ENDIAN).int
+                val titleLength = (0..3).fold(0) { value, i -> value or ((packed[i].toInt() and 255) shl (8 * i)) }
                 eventListener?.onNotification(
                     this,
-                    String(packed, 4, titleLength, Charsets.UTF_8),
-                    String(packed, 4 + titleLength, packed.size - 4 - titleLength, Charsets.UTF_8),
+                    packed.decodeToString(4, 4 + titleLength),
+                    packed.decodeToString(4 + titleLength),
                 )
             }
         }
@@ -279,11 +278,11 @@ public class GhosttyTerminalSession(
                 mainScope.launch {
                     val host = host
                     if (host == null) {
-                        clipboardReadPromptPending.set(false)
+                        clipboardReadPromptPending.store(false)
                         return@launch
                     }
                     host.requestClipboardRead { approved ->
-                        clipboardReadPromptPending.set(false)
+                        clipboardReadPromptPending.store(false)
                         if (approved) clipboardReadApproved = true
                     }
                 }
@@ -291,7 +290,7 @@ public class GhosttyTerminalSession(
             return null
         }
         return try {
-            clipboard.getText().orEmpty().toByteArray(Charsets.UTF_8)
+            clipboard.getText().orEmpty().encodeToByteArray()
         } catch (e: Exception) {
             logError(TAG, "clipboard read failed", e)
             null
@@ -319,13 +318,13 @@ public class GhosttyTerminalSession(
     }
 
     public fun screenText(): String? = withHandle { GhosttyVt.nativeViewportText(it) }
-        ?.toString(Charsets.UTF_8)
+        ?.decodeToString()
 
     public fun selectionText(): String? = withHandle { GhosttyVt.nativeSelectionText(it) }
-        ?.toString(Charsets.UTF_8)
+        ?.decodeToString()
 
     public fun transcriptText(): String? = withHandle { GhosttyVt.nativeTranscriptText(it) }
-        ?.toString(Charsets.UTF_8)
+        ?.decodeToString()
 
     public fun resize(columns: Int, rows: Int, cellWidthPixels: Int, cellHeightPixels: Int) {
         resizeTerminal(columns, rows, cellWidthPixels, cellHeightPixels)
@@ -476,15 +475,7 @@ public class GhosttyTerminalSession(
             if (!raw.startsWith("file://")) {
                 return raw
             }
-            val path = try {
-                URI(raw).path
-            } catch (_: URISyntaxException) {
-                // Shells that skip percent-encoding send paths with spaces as is.
-                raw.substring("file://".length)
-                    .let { rest ->
-                        rest.indexOf('/').takeIf { it >= 0 }?.let(rest::substring)
-                    }
-            }
+            val path = fileUriPath(raw)
             return path?.takeIf { it.isNotEmpty() }
         }
     }

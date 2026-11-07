@@ -1,7 +1,5 @@
 package io.github.xchacha20_poly1305.libghostty
 
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
 
 /**
  * What a renderer draws: the viewport grid, cursor and images of a terminal. [update] applies the rows the
@@ -54,7 +52,7 @@ public class GhosttyRenderState {
     public var kittyPlacements: List<GhosttyKittyPlacement> = emptyList()
         private set
 
-    private var buffer = ByteBuffer.allocateDirect(0)
+    private var buffer = SnapshotBuffer(0)
 
     /** A new state has seen no rows yet, whatever the terminal already reported to an earlier renderer. */
     private var needsFullSnapshot = true
@@ -135,7 +133,7 @@ public class GhosttyRenderState {
         return changed || scrolled || imagesChanged
     }
 
-    private fun allocate(capacity: Int): ByteBuffer = ByteBuffer.allocateDirect(capacity).order(ByteOrder.LITTLE_ENDIAN)
+    private fun allocate(capacity: Int): SnapshotBuffer = SnapshotBuffer(capacity)
 
     private fun requiredCapacity(): Int {
         val cols = buffer.getInt(COLUMNS_OFFSET).coerceAtLeast(columns)
@@ -205,7 +203,7 @@ public class GhosttyRenderState {
         rowSelectionEnd = IntArray(newRows) { -1 }
     }
 
-    private fun readRow(buffer: ByteBuffer, selectionBackground: Int?, selectionForeground: Int?) {
+    private fun readRow(buffer: SnapshotBuffer, selectionBackground: Int?, selectionForeground: Int?) {
         val row = buffer.int
         val selectionStart = buffer.int
         var selectionEnd = buffer.int
