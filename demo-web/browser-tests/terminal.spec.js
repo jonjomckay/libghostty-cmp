@@ -3,7 +3,7 @@ import {resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 
 const pageUrl = process.env.GHOSTTY_DEMO_URL || pathToFileURL(resolve(import.meta.dirname, '../build/offline/index.html')).href;
-const screen = page => page.locator('#cmp_a11y_root [aria-label]').last();
+const screen = page => page.locator('#demo-terminal');
 const size = page => page.getByText(/\d+\s*×\s*\d+/);
 
 async function command(page, text) {
@@ -179,4 +179,29 @@ test.describe('browser language and color scheme defaults', () => {
     await expect(chromeButton(page, /^跟随系统$/)).toBeVisible();
     await expect.poll(() => page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe('rgb(250, 250, 251)');
   });
+});
+
+
+test('compact layout extra keys complete, recall and cancel input without losing focus', async ({page}) => {
+  await expect(chromeButton(page, /^TAB$/)).toHaveCount(0);
+  await page.setViewportSize({width: 412, height: 850});
+  await expect(chromeButton(page, /^TAB$/)).toBeVisible();
+  await expect(page.locator('canvas')).toHaveJSProperty('clientHeight', 850);
+  await focusTerminal(page);
+  await page.keyboard.type('pw');
+  await expect(screen(page)).toHaveAttribute('aria-label', /\$ pw$/);
+  const tab = await chromeButton(page, /^TAB$/).boundingBox();
+  await page.mouse.click(tab.x + tab.width / 2, tab.y + tab.height / 2);
+  await expect(page.locator('textarea')).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(screen(page)).toHaveAttribute('aria-label', /\n\/home\/guest\n/);
+  await clickChrome(page, /^▲$/);
+  await expect(screen(page)).toHaveAttribute('aria-label', /\$ pwd$/);
+  await clickChrome(page, /^CTRL$/);
+  await page.keyboard.type('c');
+  await expect(screen(page)).toHaveAttribute('aria-label', /\^C\nguest:~ \$$/);
+  await command(page, 'echo ordinary');
+  await expect(screen(page)).toHaveAttribute('aria-label', /\nordinary\n/);
+  await page.setViewportSize({width: 1280, height: 900});
+  await expect(chromeButton(page, /^TAB$/)).toHaveCount(0);
 });

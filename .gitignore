@@ -13,3 +13,5 @@ build/
 node_modules/
 /demo-web/browser-tests/test-results/
 /demo-web/browser-tests/playwright-report/
+
+/release.keystore

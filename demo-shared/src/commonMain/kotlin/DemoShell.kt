@@ -1,8 +1,10 @@
+package io.github.xchacha20_poly1305.libghostty.demo.shared
+
 /** A deterministic in-memory shell. It only produces terminal bytes; Ghostty handles VT and rendering. */
 internal class DemoShell(private val output: (String) -> Unit) {
     private val directories = setOf("/", "/home", "/home/guest", "/home/guest/examples")
     private val files = mapOf(
-        "/home/guest/README.txt" to "Welcome to libghostty on the web.\nThis shell is simulated; the terminal core is real Ghostty.\nNo server, no account, no network connection required.\nTry: cat examples/ansi.txt\n",
+        "/home/guest/README.txt" to "Welcome to libghostty.\nThis shell is simulated; the terminal core is real Ghostty.\nNo server, no account, no network connection required.\nTry: cat examples/ansi.txt\n",
         "/home/guest/你好.txt" to "你好，世界！\n中文、组合字符 e\u0301、全角文字与 ANSI 控制序列都由 Ghostty 处理。\n",
         "/home/guest/examples/ansi.txt" to "\u001b[1mBold\u001b[0m  \u001b[3mItalic\u001b[0m  \u001b[4mUnderline\u001b[0m\n\u001b[31mRed\u001b[0m  \u001b[32mGreen\u001b[0m  \u001b[34mBlue\u001b[0m  \u001b[38;2;180;140;255mTrue color\u001b[0m\n",
     )
@@ -19,8 +21,8 @@ internal class DemoShell(private val output: (String) -> Unit) {
     private var closed = false
 
     fun start() {
-        output("\u001b]0;Ghostty Web Terminal\u0007\u001b[?2004h\u001b[1;38;2;172;191;250mGhostty, in your browser.\u001b[0m\r\n")
-        output("Real terminal emulation · simulated shell · works offline\r\nType \u001b[36mhelp\u001b[0m for commands. Try the examples above.\r\n\r\n")
+        output("\u001b]0;Ghostty Demo Terminal\u0007\u001b[?2004h\u001b[1;38;2;172;191;250mGhostty terminal demo.\u001b[0m\r\n")
+        output("Real terminal emulation · simulated shell · works offline\r\nType \u001b[36mhelp\u001b[0m for commands. Try showcase for examples.\r\n\r\n")
         prompt()
     }
 

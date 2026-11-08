@@ -47,6 +47,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalFontFamilyResolver
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -54,6 +55,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.xchacha20_poly1305.libghostty.GhosttyTheme
+import io.github.xchacha20_poly1305.libghostty.compose.GhosttyExtraKeysBar
 import io.github.xchacha20_poly1305.libghostty.compose.GhosttyDialogs
 import io.github.xchacha20_poly1305.libghostty.compose.GhosttyTerminal
 import io.github.xchacha20_poly1305.libghostty.demo.resources.Res
@@ -179,8 +181,9 @@ private fun DemoApp(preferences: DemoPreferences, runtime: DemoRuntime, dark: Bo
                     dark = dark,
                     modifier = Modifier.weight(1f).fillMaxWidth(),
                 )
-                DemoFooter(compact)
+                if (!compact) DemoFooter(compact)
             }
+            if (compact) GhosttyExtraKeysBar(runtime.state)
         }
         GhosttyDialogs(runtime.state)
     }
@@ -246,8 +249,8 @@ private fun DemoHeader(preferences: DemoPreferences, compact: Boolean) {
                 horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                LanguageSelector(preferences)
-                ThemeSelector(preferences)
+                LanguageSelector(preferences, compact)
+                ThemeSelector(preferences, compact)
                 if (!compact) {
                     TextButton(onClick = { openUrl(SourceUrl) }) { Text(stringResource(Res.string.source)) }
                 }
@@ -352,7 +355,7 @@ private fun DemoTerminalWindow(
             }
             GhosttyTerminal(
                 runtime.session,
-                Modifier.weight(1f).fillMaxWidth(),
+                Modifier.weight(1f).fillMaxWidth().testTag("demo-terminal"),
                 runtime.state,
                 theme = theme,
                 darkColorScheme = dark,
@@ -377,8 +380,9 @@ private fun DemoFooter(compact: Boolean) {
 }
 
 @Composable
-private fun LanguageSelector(preferences: DemoPreferences) {
+private fun LanguageSelector(preferences: DemoPreferences, compact: Boolean) {
     ChoiceButton(
+        compact = compact,
         icon = Res.drawable.ic_language,
         value = if (preferences.language == DemoLanguage.Chinese) {
             stringResource(Res.string.language_chinese)
@@ -393,13 +397,14 @@ private fun LanguageSelector(preferences: DemoPreferences) {
 }
 
 @Composable
-private fun ThemeSelector(preferences: DemoPreferences) {
+private fun ThemeSelector(preferences: DemoPreferences, compact: Boolean) {
     val value = when (preferences.theme) {
         DemoTheme.System -> stringResource(Res.string.theme_system)
         DemoTheme.Light -> stringResource(Res.string.theme_light)
         DemoTheme.Dark -> stringResource(Res.string.theme_dark)
     }
     ChoiceButton(
+        compact = compact,
         icon = Res.drawable.ic_contrast,
         value = value,
         options = listOf(
@@ -412,16 +417,25 @@ private fun ThemeSelector(preferences: DemoPreferences) {
 
 @Composable
 private fun ChoiceButton(
+    compact: Boolean,
     icon: DrawableResource,
     value: String,
     options: List<Pair<String, () -> Unit>>,
 ) {
     var expanded by remember { mutableStateOf(false) }
     Box {
-        TextButton(onClick = { expanded = true }) {
-            Icon(painterResource(icon), contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(6.dp))
-            Text(value, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        if (compact) {
+            Hinted(value) {
+                IconButton(onClick = { expanded = true }) {
+                    Icon(painterResource(icon), contentDescription = value, modifier = Modifier.size(18.dp))
+                }
+            }
+        } else {
+            TextButton(onClick = { expanded = true }) {
+                Icon(painterResource(icon), contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(value, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             options.forEach { (title, onPick) ->

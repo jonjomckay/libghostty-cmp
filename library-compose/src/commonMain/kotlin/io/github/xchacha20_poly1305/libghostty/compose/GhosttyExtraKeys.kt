@@ -40,10 +40,18 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.addPathNodes
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.github.xchacha20_poly1305.libghostty.compose.resources.Res
+import io.github.xchacha20_poly1305.libghostty.compose.resources.ghostty_paste
+import org.jetbrains.compose.resources.stringResource
 import io.github.xchacha20_poly1305.libghostty.GhosttyKey
 import io.github.xchacha20_poly1305.libghostty.compose.GhosttyExtraKeysState.StickyState
 import kotlinx.coroutines.coroutineScope
@@ -241,6 +249,7 @@ private fun KeyButton(
     onPress: () -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
+    val description = label ?: stringResource(Res.string.ghostty_paste)
     Surface(
         modifier = if (icon != null) {
             Modifier.size(36.dp)
@@ -249,7 +258,8 @@ private fun KeyButton(
         }
             .clip(keyShape)
             .indication(interactionSource, ripple())
-            .ghosttyExtraKey(state, interactionSource = interactionSource, onPress = onPress),
+            .ghosttyExtraKey(state, interactionSource = interactionSource, onPress = onPress)
+            .extraKeySemantics(state, description, onPress),
         shape = keyShape,
         color = containerColor,
     ) {
@@ -288,7 +298,8 @@ private fun ArrowKeyButton(
             .size(36.dp)
             .clip(keyShape)
             .indication(interactionSource, ripple())
-            .ghosttyExtraKey(state, repeatable = true, interactionSource = interactionSource, onPress = onPress),
+            .ghosttyExtraKey(state, repeatable = true, interactionSource = interactionSource, onPress = onPress)
+            .extraKeySemantics(state, label, onPress),
         shape = keyShape,
         color = colors.keyContainer,
     ) {
@@ -314,6 +325,20 @@ private fun KeyDivider(colors: GhosttyExtraKeysColors) {
     )
 }
 
+private fun Modifier.extraKeySemantics(
+    state: GhosttyTerminalState,
+    label: String,
+    onPress: () -> Unit,
+): Modifier = semantics(mergeDescendants = true) {
+    role = Role.Button
+    contentDescription = label
+    onClick {
+        onPress()
+        state.showKeyboard()
+        true
+    }
+}
+
 private val pasteIcon: ImageVector = ImageVector.Builder(
     name = "Paste",
     defaultWidth = 24.dp,
@@ -332,7 +357,7 @@ private val pasteIcon: ImageVector = ImageVector.Builder(
 /**
  * Handles presses on a key button outside the terminal, such as one of an extra keys bar: fires [onPress] on release,
  * and when [repeatable] is set, repeatedly while held instead. A touch that a scrollable parent takes over as a drag
- * fires nothing, so the keys can sit in a scrolling row. Every gesture returns focus to the terminal of [state] so the
+ * fires nothing, so the keys can sit in a scrolling row. Every gesture restores the terminal input and software keyboard of [state] so the
  * button does not take the input target away from it. The gesture consumes the release, so the button must not also be
  * clickable; pass an [interactionSource] to drive `Modifier.indication` from it instead.
  */
@@ -392,7 +417,7 @@ public fun Modifier.ghosttyExtraKey(
                         )
                     }
                 }
-                state.focusTerminal()
+                state.showKeyboard()
             }
         }
     }

@@ -32,3 +32,5 @@ include(":demo-desktop")
 include(":demo-android")
 
 include(":demo-web")
+
+include(":demo-shared")

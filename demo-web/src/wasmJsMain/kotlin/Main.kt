@@ -1,5 +1,6 @@
 @file:OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class, ExperimentalWasmJsInterop::class)
 
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -11,7 +12,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.createFontFamilyResolver
 import androidx.compose.ui.text.platform.Font as platformFont
 import androidx.compose.ui.window.ComposeViewport
-import io.github.xchacha20_poly1305.libghostty.GhosttyTerminalSession
+import io.github.xchacha20_poly1305.libghostty.demo.shared.DemoTerminal
 import io.github.xchacha20_poly1305.libghostty.GhosttyWebAssembly
 import io.github.xchacha20_poly1305.libghostty.compose.GhosttyTerminalState
 import kotlin.io.encoding.Base64
@@ -26,20 +27,20 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 
 internal class DemoRuntime(
-    val session: GhosttyTerminalSession?,
+    val terminal: DemoTerminal?,
     val state: GhosttyTerminalState,
     fontFamily: FontFamily,
     val fontResolver: FontFamily.Resolver? = null,
     val latinFont: Font? = null,
-    val shell: DemoShell?,
     val error: String? = null,
 ) {
+    val session get() = terminal?.session
     var columns by mutableIntStateOf(80)
     var rows by mutableIntStateOf(24)
     var fontFamily by mutableStateOf(fontFamily)
 
     fun runCommand(command: String) {
-        shell?.example(command)
+        terminal?.runCommand(command)
         state.showKeyboard()
     }
 
@@ -68,6 +69,10 @@ public fun main() {
                 }
             }
         }
+        DisposableEffect(runtime) {
+            val terminal = runtime?.terminal
+            onDispose { terminal?.close() }
+        }
         DemoRoot(preferences, runtime)
     }
 }
@@ -83,25 +88,18 @@ private suspend fun loadRuntime(): DemoRuntime {
         val family = FontFamily(latin)
         val resolver = createFontFamilyResolver()
         resolver.preload(family)
-        val session = GhosttyTerminalSession(GhosttyTerminalSession.Options(defaultGraphemeCluster = true))
-        val runtime = DemoRuntime(
-            session = session,
+        var runtime: DemoRuntime? = null
+        val terminal = DemoTerminal { columns, rows ->
+            runtime?.columns = columns
+            runtime?.rows = rows
+        }
+        runtime = DemoRuntime(
+            terminal = terminal,
             state = GhosttyTerminalState(),
             fontFamily = family,
             fontResolver = resolver,
             latinFont = latin,
-            shell = DemoShell { session.feedOutput(it.encodeToByteArray()) },
         )
-        val shell = runtime.shell!!
-        session.transport = object : GhosttyTerminalSession.Transport {
-            override fun sendInput(data: ByteArray) { shell.input(data) }
-            override fun sendResize(columns: Int, rows: Int, widthPixels: Int, heightPixels: Int) {
-                runtime.columns = columns
-                runtime.rows = rows
-            }
-            override fun close() { shell.close() }
-        }
-        shell.start()
         runtime
     } catch (error: Throwable) {
         if (error is CancellationException) {
@@ -109,10 +107,9 @@ private suspend fun loadRuntime(): DemoRuntime {
         }
         consoleError(error.message ?: error.toString())
         DemoRuntime(
-            session = null,
+            terminal = null,
             state = GhosttyTerminalState(),
             fontFamily = FontFamily.Monospace,
-            shell = null,
             error = error.message ?: error.toString(),
         )
     }

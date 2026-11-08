@@ -1,3 +1,5 @@
+package io.github.xchacha20_poly1305.libghostty.demo.shared
+
 import kotlin.test.*
 
 class DemoShellTest {
@@ -57,5 +59,25 @@ class DemoShellTest {
         shell.example("showcase")
         assertContains(out.toString(), "👨‍👩‍👧‍👦")
         assertContains(out.toString(), "\u001b]8;;https://github.com/")
+    }
+    @Test fun closedShellIgnoresInputAndExampleCommands() {
+        val out = StringBuilder()
+        val shell = DemoShell { out.append(it) }
+        shell.start()
+        shell.close()
+        out.clear()
+        shell.input("echo ignored\r".encodeToByteArray())
+        shell.example("showcase")
+        assertEquals("", out.toString())
+    }
+    @Test fun arrowEditingAndCtrlCancelUseTheSameInputStream() {
+        val out = StringBuilder()
+        val shell = DemoShell { out.append(it) }
+        shell.input("echo ac\u001b[Db\r".encodeToByteArray())
+        assertContains(out.toString(), "\r\nabc\r\n")
+        out.clear()
+        shell.input("echo cancelled\u0003echo kept\r".encodeToByteArray())
+        assertContains(out.toString(), "^C\r\n")
+        assertContains(out.toString(), "\r\nkept\r\n")
     }
 }

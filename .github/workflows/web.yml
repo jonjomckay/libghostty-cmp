@@ -5,6 +5,7 @@ on:
     branches: [cmp]
     paths:
       - "demo-web/**"
+      - "demo-shared/**"
       - "library/**"
       - "library-compose/**"
       - "native/**"
@@ -20,6 +21,7 @@ on:
   pull_request:
     paths:
       - "demo-web/**"
+      - "demo-shared/**"
       - "library/**"
       - "library-compose/**"
       - "native/**"

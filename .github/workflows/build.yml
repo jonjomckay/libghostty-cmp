@@ -106,6 +106,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
+      - name: Use the release version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: echo "ORG_GRADLE_PROJECT_VERSION_NAME=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
       - name: Build
         # The Web demo workflow owns its executable distribution.
         run: ./gradlew assemble -x :demo-web:assemble
@@ -115,6 +119,31 @@ jobs:
           path: |
             library*/build/outputs/aar/*.aar
             library*/build/libs/*.jar
+      - name: Build signed Android demo
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          ANDROID_DEMO_KEYSTORE_BASE64: ${{ secrets.ANDROID_DEMO_KEYSTORE_BASE64 }}
+          ANDROID_DEMO_STORE_PASSWORD: ${{ secrets.ANDROID_DEMO_STORE_PASSWORD }}
+          ANDROID_DEMO_KEY_ALIAS: ${{ secrets.ANDROID_DEMO_KEY_ALIAS }}
+          ANDROID_DEMO_KEY_PASSWORD: ${{ secrets.ANDROID_DEMO_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${ANDROID_DEMO_KEYSTORE_BASE64:?Missing Android demo keystore}"
+          : "${ANDROID_DEMO_STORE_PASSWORD:?Missing Android demo store password}"
+          : "${ANDROID_DEMO_KEY_ALIAS:?Missing Android demo key alias}"
+          : "${ANDROID_DEMO_KEY_PASSWORD:?Missing Android demo key password}"
+          export ANDROID_DEMO_KEYSTORE="$RUNNER_TEMP/android-demo-release.keystore"
+          trap 'rm -f "$ANDROID_DEMO_KEYSTORE"' EXIT
+          umask 077
+          printf '%s' "$ANDROID_DEMO_KEYSTORE_BASE64" | base64 --decode > "$ANDROID_DEMO_KEYSTORE"
+          ./gradlew :demo-android:packageReleaseApk --no-configuration-cache
+      - uses: actions/upload-artifact@v7
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          name: android-demo-release
+          path: demo-android/build/distributions/*.apk
+          if-no-files-found: error
       - name: Publish snapshot to Maven Central
         if: github.event_name == 'push' && github.ref == 'refs/heads/cmp'
         run: |
@@ -146,7 +175,7 @@ jobs:
         run: echo "ORG_GRADLE_PROJECT_VERSION_NAME=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
       - name: Run the desktop tests
         shell: bash
-        run: ./gradlew :library:desktopTest :library-extras:desktopTest :demo-desktop:test
+        run: ./gradlew :library:desktopTest :library-extras:desktopTest :demo-desktop:test :demo-shared:desktopTest
       - name: Load the library after R8
         shell: bash
         run: ./gradlew :shrink-check:shrinkCheck
@@ -251,6 +280,11 @@ jobs:
         with:
           name: web-demo-release
           path: web-demo-release
+      - name: Download the Android demo
+        uses: actions/download-artifact@v8
+        with:
+          name: android-demo-release
+          path: android-demo-release
       - name: Publish to Maven Central
         run: ./gradlew publishAndReleaseToMavenCentral -PVERSION_NAME="$VERSION"
         env:
@@ -270,6 +304,7 @@ jobs:
             library*/build/libs/*-desktop.jar \
             desktop-demo-jars/*.jar \
             web-demo-release/*.zip \
+            android-demo-release/*.apk \
             --title "$GITHUB_REF_NAME" \
             --notes "ghostty commit: $(sed -n 's/^GHOSTTY_COMMIT=//p' gradle.properties)" \
             "${prerelease[@]}"

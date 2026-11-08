@@ -14,7 +14,6 @@ val copyGhosttyWasm = tasks.register<Sync>("copyGhosttyWasm") {
 }
 
 kotlin {
-    jvm("shell")
     @OptIn(org.jetbrains.kotlin.gradle.ExperimentalWasmDsl::class)
     wasmJs {
         browser()
@@ -22,10 +21,10 @@ kotlin {
     }
     sourceSets {
         commonMain.dependencies {
+            implementation(project(":demo-shared"))
             implementation(libs.compose.runtime)
             implementation(libs.compose.components.resources)
         }
-        commonTest.dependencies { implementation(libs.kotlin.test) }
         wasmJsMain {
             resources.srcDir(copyGhosttyWasm)
         }

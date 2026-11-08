@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">终端演示</string>
+    <string name="run_example">运行示例</string>
+    <string name="paste">粘贴</string>
+    <string name="clear">清屏</string>
+    <string name="theme_system">跟随系统</string>
+    <string name="theme_light">浅色</string>
+    <string name="theme_dark">深色</string>
+</resources>
