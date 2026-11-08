@@ -88,10 +88,13 @@ const kitty_placeholder: u21 = 0x10EEEE;
 /// Writes the snapshot into `buf` and returns the number of rows written,
 /// or `failed`. Deferring frames during synchronized output is up to the
 /// caller.
-pub fn write(session: *Session, buf: []u8) i32 {
+pub fn write(session: *Session, buf: []u8, full: bool) i32 {
     if (buf.len < @sizeOf(Header)) return failed;
     const state = &session.render;
     state.update(session.alloc, &session.terminal) catch return failed;
+    // A renderer that has never drawn asks for every row. `update` recomputes
+    // the dirty state from the terminal, so this must come after it.
+    if (full) state.dirty = .full;
 
     var header: Header = .{
         .dirty = @backingInt(state.dirty),

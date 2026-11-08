@@ -51,6 +51,21 @@ class GhosttyRenderStateTest {
     }
 
     @Test
+    fun freshRenderStateReceivesFullScreen() {
+        write("hello\r\nworld")
+        val first = GhosttyRenderState()
+        assertTrue(update(first))
+        assertFalse(update(first), "nothing changed for the same renderer")
+
+        // A renderer that has never drawn must still see the whole screen, even
+        // though the session's dirty state was consumed above.
+        val second = GhosttyRenderState()
+        assertTrue(update(second), "a new renderer must receive a full snapshot")
+        assertEquals("hello", second.text(0))
+        assertEquals("world", second.text(1))
+    }
+
+    @Test
     fun graphemeClusterJoinsZwjSequenceIntoOneCell() {
         val family = "👨‍👩‍👧"
         val clustering = GhosttyTerminalSession(

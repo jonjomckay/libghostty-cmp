@@ -418,8 +418,7 @@ const natives = struct {
         const cap = env.call("GetDirectBufferCapacity", .{buffer});
         if (cap < 0) return snapshot.failed;
         const s = session(handle);
-        if (full != 0) s.markDirty();
-        return snapshot.write(s, base[0..@intCast(cap)]);
+        return snapshot.write(s, base[0..@intCast(cap)], full != 0);
     }
 
     pub fn nativeKittyPlacements(env: *jni.Env, _: jni.Object, handle: i64) jni.LongArray {

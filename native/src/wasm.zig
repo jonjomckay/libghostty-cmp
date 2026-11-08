@@ -186,8 +186,7 @@ export fn ghostty_call(op: i32, handle: usize, a: i32, b: i32, c: i32, d: i32, e
         },
         .snapshot => {
             result.resize(alloc, @intCast(@max(a, 0))) catch return -1;
-            if (b != 0) s.markDirty();
-            return snapshot.write(s, result.items);
+            return snapshot.write(s, result.items, b != 0);
         },
         .kitty_placements, .kitty_image => return 0, // Kitty images are outside the browser feature set.
         .encode_key => return encoded(vt.input.encodeKey, .{ vt.input.KeyEvent{
