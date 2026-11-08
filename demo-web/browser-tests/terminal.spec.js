@@ -20,13 +20,15 @@ async function focusTerminal(page) {
   await expect(page.locator('textarea')).toBeFocused();
 }
 
-// Compose draws chrome on the Skia canvas; the a11y nodes sit under it, so clicks need force.
+// Compose draws chrome on the Skia canvas and exposes actions through its a11y nodes.
 function chromeButton(page, name) {
   return page.getByRole('button', {name});
 }
 
 async function clickChrome(page, name) {
-  await chromeButton(page, name).click({force: true});
+  // The a11y tree has pointer-events:none. A forced mouse click hits the canvas,
+  // not this node; dispatch to the semantic action explicitly in every browser.
+  await chromeButton(page, name).dispatchEvent('click');
 }
 
 test.beforeEach(async ({page}) => {
@@ -119,17 +121,35 @@ test('OSC 52 clipboard writes require confirmation', async ({page}) => {
   await expect(screen(page)).toHaveAttribute('aria-label', /\nstill running\n/);
 });
 
-test('paste button uses the asynchronous clipboard host', async ({page}) => {
-  await page.evaluate(() => {
-    Object.defineProperty(navigator, 'clipboard', {configurable: true, value: {
-      readText: () => Promise.resolve('echo async paste')
-    }});
+for (const waitForApproval of [false, true]) {
+  test(`paste button uses the asynchronous clipboard host${waitForApproval ? ' after approval' : ''}`, async ({page}) => {
+    const beforePaste = await screen(page).getAttribute('aria-label');
+    await page.evaluate(waitForApproval => {
+      globalThis.clipboardReadCount = 0;
+      Object.defineProperty(navigator, 'clipboard', {configurable: true, value: {
+        readText: () => {
+          globalThis.clipboardReadCount++;
+          // Firefox's native Paste menu leaves readText pending until the user approves.
+          // It is browser UI, outside Playwright's page locators, so model that boundary here.
+          return waitForApproval
+            ? new Promise(resolve => { globalThis.approveClipboardRead = resolve; })
+            : Promise.resolve('echo async paste');
+        }
+      }});
+    }, waitForApproval);
+    await clickChrome(page, /^Paste$/);
+    await expect.poll(() => page.evaluate(() => globalThis.clipboardReadCount)).toBe(1);
+    if (waitForApproval) {
+      await expect(screen(page)).toHaveAttribute('aria-label', beforePaste);
+      await page.evaluate(() => globalThis.approveClipboardRead('echo async paste'));
+    }
+    await expect(screen(page)).toHaveAttribute('aria-label', /echo async paste$/);
+    await expect(page.locator('textarea')).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(screen(page)).toHaveAttribute('aria-label', /\nasync paste\n/);
+    expect(await page.evaluate(() => globalThis.clipboardReadCount)).toBe(1);
   });
-  await clickChrome(page, /^Paste$/);
-  await expect(screen(page)).toHaveAttribute('aria-label', /echo async paste$/);
-  await page.keyboard.press('Enter');
-  await expect(screen(page)).toHaveAttribute('aria-label', /\nasync paste\n/);
-});
+}
 
 test('browser paste shortcut does not also read the clipboard API', async ({page}) => {
   await page.evaluate(() => {
